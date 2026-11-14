@@ -195,7 +195,10 @@ until those tests pass on the target Linux/Python combination.
     undisplay 1
     delete display 2
 
-Each expression gets a stable numeric ID and is evaluated immediately and
+An expression is registered only after its initial evaluation and repr succeed.
+Failures are reported without adding an entry or consuming an ID. The initial
+expression is evaluated only once. Each successful expression gets a stable
+numeric ID and is evaluated immediately and
 at every ipdb stop, even if its value has not changed. Values are also
 refreshed when selecting a frame. Evaluation uses the currently displayed
 frame's Python globals and locals. An unavailable variable or another

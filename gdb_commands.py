@@ -126,14 +126,15 @@ def Install():
             return
         try:
             code = compile(expression, '<display>', 'eval')
-        except SyntaxError as error:
-            self.error(str(error))
+            rendered = repr(eval(code, self.curframe.f_globals, self.curframe.f_locals))
+        except Exception as error:
+            self.error('{}: {}'.format(type(error).__name__, error))
             return
         entries = DisplayEntries(self)
         number = self._portable_display_next
         self._portable_display_next += 1
         entries[number] = {'expression': expression, 'code': code, 'enabled': True}
-        RenderDisplay(self, number, entries[number], self.curframe)
+        self.message('{}: {} = {}'.format(number, expression, rendered))
 
     def ChangeDisplays(self, argument, action):
         entries = DisplayEntries(self)

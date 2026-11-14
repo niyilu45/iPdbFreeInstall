@@ -70,12 +70,32 @@ class CommandTests(unittest.TestCase):
             output = io.StringIO()
             debugger = Pdb(stdin=io.StringIO(), stdout=output)
             debugger.use_rawinput = False
-            debugger.cmdqueue = ['disp values[0]', 'next', 'next', 'quit']
+            debugger.cmdqueue = ['disp values[0]', 'next', 'disp values[0]', 'next', 'quit']
             debugger.run(compile(path.read_text(), str(path), 'exec'), {})
             text = output.getvalue()
-            self.assertIn('1: values[0] = <NameError:', text)
+            self.assertIn('NameError:', text)
+            self.assertNotIn('1: values[0] = <NameError:', text)
             self.assertIn('1: values[0] = 1', text)
             self.assertIn('1: values[0] = 2', text)
+
+    def test_failed_display_is_not_registered_or_numbered(self):
+        class BrokenRepr:
+            def __repr__(self):
+                raise ValueError('cannot render')
+        namespace = {'broken': BrokenRepr(), 'items': []}
+        debugger = Pdb(stdin=io.StringIO(), stdout=io.StringIO())
+        debugger.curframe = SimpleNamespace(f_globals={}, f_locals=namespace)
+        debugger.do_info('display')
+        for expression in ('missing_name', '1 / 0', 'items[1]', '1 +', 'broken'):
+            debugger.do_display(expression)
+            self.assertEqual(debugger._portable_displays, {})
+            self.assertEqual(debugger._portable_display_next, 1)
+        debugger.do_display('items.append(1)')
+        self.assertEqual(namespace['items'], [1])
+        self.assertEqual(list(debugger._portable_displays), [1])
+        debugger.do_display('another_missing_name')
+        self.assertEqual(list(debugger._portable_displays), [1])
+        self.assertEqual(debugger._portable_display_next, 2)
 
     def test_display_management_and_instance_isolation(self):
         output = io.StringIO()
