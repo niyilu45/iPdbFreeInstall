@@ -99,7 +99,11 @@ def Run(arguments):
             Tmux('set-option', '-t', 'debug', 'mouse', 'on')
             Tmux('bind-key', 'k', 'select-pane', '-U')
             Tmux('bind-key', 'j', 'select-pane', '-D')
-            Tmux('bind-key', '-n', 'C-w', 'if-shell', '-F', '#{==:#{pane_id},' + source_id + '}', 'send-keys C-w', 'switch-client -T ipdb-nav')
+            def ResizeCommand(key):
+                return Shell([sys.executable, base / 'tmux_resize.py', tmux, command[2], '#{pane_id}', '#{client_name}', key])
+            Tmux('bind-key', '-n', 'C-w', 'if-shell', '-F', '#{==:#{pane_id},' + source_id + '}', 'send-keys C-w', 'run-shell ' + shlex.quote(ResizeCommand('reset')))
+            for key in '0123456789+-=':
+                Tmux('bind-key', '-T', 'ipdb-nav', key, 'run-shell', ResizeCommand(key))
             for key, direction in (('h', '-L'), ('j', '-D'), ('k', '-U'), ('l', '-R')):
                 Tmux('bind-key', '-T', 'ipdb-nav', key, 'select-pane', direction)
             Tmux('bind-key', '-T', 'ipdb-nav', 'C-w', 'send-keys', 'C-w')

@@ -559,3 +559,14 @@ the debug session, modules outside that directory, and native extensions are
 not reloaded. This is a program restart, not live replacement of active frames.
 Breakpoints remain line-based; adjust them if edits move code. Existing fork
 checkpoints are discarded on restart so they cannot restore pre-edit state.
+
+
+### Window height keys in system Vim/tmux mode
+
+Use Ctrl-W, then an optional count, then + or - to grow/shrink the current
+window vertically. For example Ctrl-W 5 + adds five rows; Ctrl-W - removes one.
+Ctrl-W = equalizes heights. Inside the source Vim pane these remain Vim's native
+window commands and affect Vim's internal splits. In the debugger pane the
+same keys adjust its tmux pane (the source pane receives the remaining space).
+Counts are capped at 9999 and tmux enforces available terminal space. Use
+Ctrl-W = in the debugger pane to restore equal source/debugger heights.

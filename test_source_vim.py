@@ -59,6 +59,14 @@ call assert_equal(win_getid(1, 1), win_getid())
 call win_gotoid(win_getid(1, 1))
 call assert_equal(4, line('.'))
 call assert_equal('', get(g:, 'ipdb_source_error', ''))
+only
+split
+wincmd j
+let oldheight = winheight(0)
+execute "normal! \\<C-w>2+"
+call assert_equal(oldheight + 2, winheight(0))
+execute "normal! \\<C-w>="
+call assert_true(abs(winheight(1) - winheight(2)) <= 1)
 call writefile(v:errors, $IPDB_TEST_ERRORS)
 qa!
 ''')
@@ -106,7 +114,7 @@ qa!
                 time.sleep(0.2)
                 os.write(master, b'\x17j')
                 time.sleep(0.2)
-                os.write(master, b'c\n')
+                os.write(master, b'\x175+\x17=c\n')
                 WaitFor(b'RESULT 42')
                 output.clear()
                 os.write(master, b'q\n')
