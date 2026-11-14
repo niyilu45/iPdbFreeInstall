@@ -2,6 +2,7 @@
 import builtins
 import inspect
 import re
+import os
 
 
 def ExpressionMatches(debugger, prefix):
@@ -81,7 +82,14 @@ def InstallCompletion(debugger_class):
         if state == 0:
             try:
                 import readline
-                self._portable_matches = Matches(self, readline.get_line_buffer(), readline.get_begidx(), readline.get_endidx())
+                candidates = Matches(self, readline.get_line_buffer(), readline.get_begidx(), readline.get_endidx())
+                if candidates is None:
+                    self._portable_matches = None
+                else:
+                    # Expose only the unambiguous extension. Readline must never
+                    # receive the underlying variable list, even on repeated Tab.
+                    common = os.path.commonprefix(candidates)
+                    self._portable_matches = [common] if common.startswith(text) and len(common) > len(text) else []
             except Exception:
                 self._portable_matches = []
         candidates = getattr(self, '_portable_matches', None)

@@ -61,6 +61,26 @@ class CompletionTests(unittest.TestCase):
         readline.parse_and_bind.assert_called_with('tab: complete')
         readline.set_completer.assert_called_with(previous)
 
+    def test_ambiguous_completion_returns_only_common_extension(self):
+        import io
+        import sys
+        import portable_ipdb
+        from IPython.core.debugger import Pdb
+        from unittest import mock
+        debugger = Pdb(stdout=io.StringIO())
+        debugger.curframe = SimpleNamespace(f_globals={}, f_locals={
+            'signal_count': 1, 'signal_config': 2, 'signal_status': 3})
+        for prefix, expected in [('sig', 'signal_'), ('signal_', None),
+                                 ('signal_c', 'signal_co'), ('signal_co', None),
+                                 ('signal_cou', 'signal_count')]:
+            line = 'p ' + prefix
+            readline = SimpleNamespace(get_line_buffer=lambda: line,
+                                       get_begidx=lambda: 2, get_endidx=lambda: len(line))
+            with mock.patch.dict(sys.modules, {'readline': readline}):
+                for unused in range(2):
+                    self.assertEqual(debugger.complete(prefix, 0), expected)
+                    self.assertIsNone(debugger.complete(prefix, 1))
+
     def test_no_property_evaluation(self):
         class Object:
             @property

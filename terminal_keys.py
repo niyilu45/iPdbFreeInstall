@@ -129,7 +129,7 @@ def ConfigureInput():
     try:
         import readline
         readline.parse_and_bind('tab: complete')
-        readline.parse_and_bind('set show-all-if-ambiguous on')
+        readline.parse_and_bind('set show-all-if-ambiguous off')
         readline.parse_and_bind('"\\C-h": backward-delete-char')
         readline.parse_and_bind('"\\C-?": backward-delete-char')
         readline.parse_and_bind('"\\C-p": previous-history')

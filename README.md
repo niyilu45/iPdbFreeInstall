@@ -599,7 +599,7 @@ or stack information in the command pane. Plain ipdb mode is unchanged.
 The readline debugger command loop explicitly enables Tab completion even when
 IPython initializes completekey=None. Examples: p vari<Tab>, disp vari<Tab>,
 and p object.attr<Tab>. Candidates use the selected frame's locals and globals;
-multiple candidates can be listed with Tab. The previous readline completer
+ambiguous names extend only to their common prefix, without a candidate list. The previous readline completer
 is restored when leaving the command loop.
 
 
@@ -620,3 +620,10 @@ horizontal scrolling, folds, edits and split-window navigation. This does not
 constitute validation of every terminal/Vim/plugin combination. If artifacts
 persist, :IpdbViewInfo reports the current terminal and viewport settings for
 diagnosis. These options apply only to the launched tmux Vim session.
+
+
+Variable Tab completion only inserts the longest common prefix. For example,
+with signal_count, signal_config and signal_status, sig<Tab> becomes signal_.
+Another Tab does nothing; after typing c, Tab extends to signal_co. After typing
+u, Tab completes signal_count. Candidate lists are never displayed for these
+completions, including repeated Tab presses. Completion remains triggered by Tab.
