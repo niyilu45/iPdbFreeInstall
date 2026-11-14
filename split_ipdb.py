@@ -4,6 +4,30 @@ import linecache
 import os
 import sys
 import unicodedata
+import re
+
+
+def ViewStart(snapshot, height):
+    maximum = max(0, len(snapshot.get('lines', [])) - height)
+    automatic = snapshot.get('line', 0) - snapshot.get('offset', 1) - height // 2
+    return min(max(0, snapshot.get('_top', automatic)), maximum)
+
+
+def ScrollSource(snapshot, action, height, width):
+    if action == 'home':
+        snapshot.pop('_top', None)
+        snapshot['_left'] = 0
+        return
+    if action in ('up', 'down', 'page_up', 'page_down'):
+        amount = {'up': -1, 'down': 1, 'page_up': -height, 'page_down': height}[action]
+        snapshot['_top'] = min(max(0, ViewStart(snapshot, height) + amount), max(0, len(snapshot.get('lines', [])) - height))
+    else:
+        maximum = snapshot.get('_max_width')
+        if maximum is None:
+            maximum = max([sum(0 if unicodedata.combining(c) else (2 if unicodedata.east_asian_width(c) in ('W', 'F') else 1) for c in line.expandtabs(4).rstrip('\n')) for line in snapshot.get('lines', [])] or [0])
+            snapshot['_max_width'] = maximum
+        limit = max(0, maximum - max(1, width - 11))
+        snapshot['_left'] = min(max(0, snapshot.get('_left', 0) + (8 if action == 'right' else -8)), limit)
 
 
 def FitCells(text, width, fill=' '):
@@ -29,7 +53,7 @@ def SourceBox(snapshot, height, width, color=False):
     content = SourceRows(snapshot, height - 2, inside + 1)
     for index in range(height - 2):
         rows.append('|' + FitCells(content[index] if index < len(content) else '', inside) + '|')
-    footer = ' Commands / output below | Ctrl-X A: split | Ctrl-X S: PuDB '
+    footer = ' Arrows: source | Home: current | Ctrl-X A: split | Ctrl-X S: PuDB '
     rows.append('+' + FitCells(footer, inside, '-') + '+')
     if color:
         from source_theme import PaintLine, TokenRows, RESET
@@ -39,14 +63,14 @@ def SourceBox(snapshot, height, width, color=False):
             syntax = TokenRows(lines)
         current = snapshot.get('line', 0)
         offset = snapshot.get('offset', 1)
-        start = min(max(0, current - offset - (height - 2) // 2), max(0, len(lines) - (height - 2)))
+        start = ViewStart(snapshot, height - 2)
         border = '\x1b[48;5;0;38;5;244m'
         rows[0] = border + rows[0] + RESET
         rows[-1] = border + rows[-1] + RESET
         for index in range(height - 2):
             source_index = start + index
             if source_index < len(lines):
-                body = PaintLine(syntax[source_index] if source_index < len(syntax) else [], offset + source_index, current, inside)
+                body = PaintLine(syntax[source_index] if source_index < len(syntax) else [], offset + source_index, current, inside, snapshot.get('_left', 0))
             else:
                 body = '\x1b[48;5;0m' + ' ' * inside + RESET
             rows[index + 1] = border + '|' + RESET + body + border + '|' + RESET
@@ -82,14 +106,13 @@ def SourceRows(snapshot, height, width):
     lines = snapshot.get('lines', [])
     current = snapshot.get('line', 0)
     offset = snapshot.get('offset', 1)
-    start = max(0, current - offset - height // 2)
-    start = min(start, max(0, len(lines) - height))
+    start = ViewStart(snapshot, height)
     rows = []
     for index in range(start, min(start + height, len(lines))):
         number = offset + index
-        marker = '>' if number == current else ' '
-        text = ''.join(c if c.isprintable() else ' ' for c in lines[index].expandtabs(4))
-        rows.append(('{} {:5d} {}'.format(marker, number, text))[:max(0, width - 1)])
+        from source_theme import PaintLine
+        text = PaintLine([(lines[index].rstrip('\n'), 252, False)], number, current, max(0, width - 1), snapshot.get('_left', 0))
+        rows.append(re.sub(r'\x1b\[[0-9;]*m', '', text))
     return rows
 
 
@@ -161,11 +184,11 @@ def InstallHook(event_fd, ack_fd=None, split_state=None):
         frame, number = frame_lineno
         filename = frame.f_code.co_filename
         lines = linecache.getlines(filename, frame.f_globals)
-        offset = max(0, number - 100)
+        offset = 0
         from source_theme import TokenRows
         message = {'file': filename, 'line': number, 'offset': offset + 1,
-                   'lines': [line[:1000] for line in lines[offset:number + 100]],
-                   'syntax': TokenRows(lines)[offset:number + 100]}
+                   'lines': lines,
+                   'syntax': TokenRows(lines)}
         try:
             packet = (json.dumps(message, ensure_ascii=True) + '\n').encode('ascii')
             while packet:
@@ -215,9 +238,10 @@ def Run(arguments, start_split=True):
         os.close(read_fd)
         os.close(ack_write)
         os.environ['IPDB_TUI_TERM'] = os.environ.get('TERM', 'xterm')
-        os.environ['TERM'] = 'dumb'
         os.environ['IPY_TEST_SIMPLE_PROMPT'] = '1'
         try:
+            from terminal_keys import ConfigureInput
+            ConfigureInput()
             InstallHook(write_fd, ack_read, split_state)
             sys.argv = [sys.argv[0]] + arguments
             from ipdb.__main__ import main
@@ -235,6 +259,8 @@ def Run(arguments, start_split=True):
     snapshot = {}
     event_buffer = b''
     keys = KeyFilter()
+    from terminal_keys import SourceKeys
+    navigation = SourceKeys()
     dimensions = None
     source_height = 0
     status = None
@@ -276,6 +302,9 @@ def Run(arguments, start_split=True):
         Write('Shortcuts enabled: Ctrl-X then A = source; Ctrl-X then S = PuDB.\r\n')
         while True:
             Resize()
+            expired = navigation.Flush()
+            if expired:
+                os.write(master, expired)
             ready, _, _ = select.select([sys.stdin.fileno(), master, read_fd], [], [], 0.1)
             if read_fd in ready:
                 chunk = os.read(read_fd, 65536)
@@ -313,6 +342,11 @@ def Run(arguments, start_split=True):
                 if pudb_active:
                     os.write(master, chunk)
                     continue
+                chunk, actions = navigation.Feed(chunk, bool(source_height and paused))
+                for action in actions:
+                    ScrollSource(snapshot, action, max(1, source_height - 2), dimensions[1])
+                if actions:
+                    DrawSource()
                 data, toggles, switches = keys.Feed(chunk)
                 if switches:
                     if paused:

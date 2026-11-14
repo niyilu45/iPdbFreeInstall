@@ -318,3 +318,30 @@ context, so multiline strings keep their coloring when the visible window
 moves. Tokenization is cached until the source text changes. A terminal
 with 256-color support gives the intended appearance (for example an SSH
 terminal using TERM=xterm-256color).
+
+## Source navigation and command editing
+
+While paused with the source pane visible:
+
+- Up/Down scroll source by one line.
+- Left/Right pan source horizontally by eight terminal cells; line numbers
+  stay fixed and the current-line highlight stays on the execution line.
+- PageUp/PageDown scroll one source page.
+- Home returns the viewport to the current execution line and resets horizontal
+  scrolling. A new debugger stop or frame selection also restores following.
+
+Browsing only changes the viewport, never the execution line. The complete
+source file is available for scrolling, rather than a limited nearby excerpt.
+In split view, use Ctrl-P/Ctrl-N for command history and Ctrl-B/Ctrl-F to move
+the command cursor. With source hidden, arrow keys are forwarded normally.
+While the program is running or PuDB is active, arrows go to that program.
+
+Both ASCII Backspace (Ctrl-H) and DEL-style Backspace are normalized to the
+PTY's configured erase character. Readline binds both to backward deletion.
+The child uses the real terminal type and explicitly activates IPython's
+simple input mode even if its module was imported before the environment
+flag was set. This avoids prompt-toolkit repainting the split terminal.
+
+Navigation, clipping, and key decoding have local regression coverage.
+The Linux PTY test also exercises both backspace encodings, but still needs
+execution on a native Linux test environment.

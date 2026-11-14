@@ -53,7 +53,7 @@ def TokenRows(lines):
     return Tokenize(source)
 
 
-def PaintLine(spans, number, current, width):
+def PaintLine(spans, number, current, width, horizontal=0):
     active = number == current
     background = CURRENT_BACKGROUND if active else BACKGROUND
     prefix = '{} {:5d} '.format('>' if active else ' ', number)
@@ -70,10 +70,16 @@ def PaintLine(spans, number, current, width):
                 characters = character if character.isprintable() else ' '
             for visible in characters:
                 size = 0 if unicodedata.combining(visible) else (2 if unicodedata.east_asian_width(visible) in ('W', 'F') else 1)
+                if index:
+                    previous = code_column
+                    code_column += size
+                    if code_column <= horizontal and (size or previous < horizontal):
+                        continue
+                    if previous < horizontal:
+                        size = code_column - horizontal
+                        visible = ' ' * size
                 if used + size > width:
                     return ''.join(output) + ' ' * (width - used) + RESET
                 output.append(visible)
                 used += size
-                if index:
-                    code_column += size
     return ''.join(output) + ' ' * max(0, width - used) + RESET

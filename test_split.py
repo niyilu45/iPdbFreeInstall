@@ -8,13 +8,48 @@ import time
 import unittest
 import re
 
-from split_ipdb import KeyFilter, SourceRows, SourceBox, FitCells
+from split_ipdb import KeyFilter, SourceRows, SourceBox, FitCells, ViewStart, ScrollSource
+from terminal_keys import SourceKeys
 from unittest import mock
 from types import SimpleNamespace
 from launch_mode import SelectMode
 
 
 class SplitTests(unittest.TestCase):
+    def test_navigation_sequences_and_backspace(self):
+        keys = SourceKeys()
+        self.assertEqual(keys.Feed(b'\x1b[', True), (b'', []))
+        self.assertEqual(keys.Feed(b'A', True), (b'', ['up']))
+        self.assertEqual(keys.Feed(b'\x1bOB\x1b[C\x1b[D', True), (b'', ['down', 'right', 'left']))
+        self.assertEqual(keys.Feed(b'\x1b[A', False), (b'\x1b[A', []))
+        self.assertEqual(keys.Feed(b'p valuX\x08e\x7f', True), (b'p valuX\x7fe\x7f', []))
+        self.assertEqual(keys.Feed(b'\x1b[3~', True), (b'\x1b[3~', []))
+        keys.Feed(b'\x1b', True)
+        keys.started -= 1
+        self.assertEqual(keys.Flush(), b'\x1b')
+
+    def test_source_scroll_and_recenter(self):
+        snapshot = {'line': 10, 'offset': 1, 'lines': ['x' * 200] * 40}
+        initial = ViewStart(snapshot, 8)
+        ScrollSource(snapshot, 'down', 8, 80)
+        self.assertEqual(ViewStart(snapshot, 8), initial + 1)
+        ScrollSource(snapshot, 'right', 8, 80)
+        self.assertEqual(snapshot['_left'], 8)
+        for _ in range(100):
+            ScrollSource(snapshot, 'down', 8, 80)
+        self.assertEqual(ViewStart(snapshot, 8), 32)
+        ScrollSource(snapshot, 'home', 8, 80)
+        self.assertEqual(ViewStart(snapshot, 8), initial)
+        self.assertEqual(snapshot['_left'], 0)
+        self.assertEqual(snapshot['line'], 10)
+
+    def test_horizontal_scroll_preserves_gutter_and_colors(self):
+        snapshot = {'file': 'demo.py', 'line': 1, 'lines': ['0123456789abcdef'], '_left': 8}
+        plain = SourceBox(snapshot, 5, 50)
+        colored = SourceBox(snapshot, 5, 50, color=True)
+        self.assertIn('>     1 89abcdef', plain[1])
+        self.assertEqual([re.sub(r'\x1b\[[0-9;]*m', '', row) for row in colored], plain)
+
     def test_launcher_modes(self):
         self.assertEqual(SelectMode(['sample.py'], 'linux', True, 'xterm'), ('keys', ['sample.py']))
         self.assertEqual(SelectMode(['--tui', 'sample.py'], 'linux', True, 'xterm'), ('tui', ['sample.py']))
@@ -78,7 +113,7 @@ class SplitTests(unittest.TestCase):
         rows = SourceBox({'file': 'demo.py', 'line': 2, 'lines': ['value = 1', 'value += 1']}, 7, 80)
         self.assertEqual(len(rows), 7)
         self.assertTrue(rows[0].startswith('+ Source: demo.py:2'))
-        self.assertTrue(rows[-1].startswith('+ Commands / output below'))
+        self.assertTrue(rows[-1].startswith('+ Arrows: source'))
         self.assertTrue(all(len(row) == 79 for row in rows))
         self.assertTrue(all(row.startswith('|') and row.endswith('|') for row in rows[1:-1]))
         self.assertTrue(any('>     2 value += 1' in row for row in rows))
@@ -180,7 +215,10 @@ class SplitTests(unittest.TestCase):
                 os.write(master, b'n\n')
                 ReadUntil(b'ipdb>')
                 output.clear()
-                os.write(master, b'p value\n')
+                os.write(master, b'p valuX\x7fe\n')
+                ReadUntil(b'41')
+                output.clear()
+                os.write(master, b'p valuX\x08e\n')
                 ReadUntil(b'41')
                 os.write(master, b'\x18a')
                 time.sleep(0.2)
