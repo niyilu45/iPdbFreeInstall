@@ -10,6 +10,14 @@ class OutputHistory:
     def Feed(self, data):
         self.stream.feed(data)
 
+    def Tail(self, limit=100):
+        lines = list(self.screen.history.top) + [self.screen.buffer[index] for index in range(self.screen.lines)]
+        result = [''.join(line.get(column, self.screen.default_char).data
+                          for column in range(self.screen.columns)).rstrip() for line in lines]
+        while result and not result[-1]:
+            result.pop()
+        return '\n'.join(result[-limit:])
+
     def Resize(self, columns, rows):
         screen = self.screen
         if screen.columns == columns and screen.lines == rows:

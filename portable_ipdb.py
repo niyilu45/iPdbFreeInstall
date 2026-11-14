@@ -24,6 +24,10 @@ def Activate():
     return vendor
 
 
+if __name__ == '__main__':
+    print('[ipdb] Starting with Python {}: {}'.format(sys.version.split()[0], sys.executable), file=sys.stderr, flush=True)
+    print('[ipdb] Checking offline dependencies...', file=sys.stderr, flush=True)
+
 try:
     vendor_path = Activate()
 except (RuntimeError, OSError) as error:
@@ -38,6 +42,8 @@ if __name__ == '__main__' and sys.argv[1:] == ['--check']:
     print('Dependencies: {}'.format(vendor_path))
     print('ipdb: {}'.format(ipdb.__file__))
     sys.exit(0)
+if __name__ == '__main__':
+    print('[ipdb] Loading debugger...', file=sys.stderr, flush=True)
 from debugger_speed import Install as InstallSpeed
 InstallSpeed()
 from gdb_commands import Install
@@ -52,6 +58,7 @@ if __name__ == '__main__':
         main()
         sys.exit(0)
     if mode in ('tui', 'keys'):
+        print('[ipdb] Opening terminal debugger...', file=sys.stderr, flush=True)
         from split_ipdb import Run
         try:
             sys.exit(Run(arguments, start_split=(mode == 'tui')))

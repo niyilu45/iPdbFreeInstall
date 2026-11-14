@@ -320,7 +320,7 @@ def Run(arguments, start_split=True):
         tty.setraw(sys.stdin.fileno())
         Write('\x1b[?1049h')
         Resize(True)
-        banner = b'Shortcuts enabled: Ctrl-X then A = source; Ctrl-X then S = PuDB.\r\n'
+        banner = b'[ipdb] Initializing debugger session...\r\nShortcuts enabled: Ctrl-X then A = source; Ctrl-X then S = PuDB.\r\n'
         output_history.Feed(banner)
         Write(banner)
         while True:
@@ -410,6 +410,9 @@ def Run(arguments, start_split=True):
     finally:
         termios.tcsetattr(sys.stdin.fileno(), termios.TCSADRAIN, saved)
         Write('\x1b[?1000l\x1b[?1006l\x1b[r\x1b[0m\x1b[?1049l')
+        recent_output = output_history.Tail()
+        if recent_output:
+            Write(recent_output.replace('\n', '\r\n') + '\r\n')
         os.close(master)
         os.close(read_fd)
         os.close(ack_write)
@@ -421,4 +424,7 @@ def Run(arguments, start_split=True):
             except ProcessLookupError:
                 pass
             _, status = os.waitpid(pid, 0)
-    return os.WEXITSTATUS(status) if os.WIFEXITED(status) else 128 + os.WTERMSIG(status)
+    exit_code = os.WEXITSTATUS(status) if os.WIFEXITED(status) else 128 + os.WTERMSIG(status)
+    if exit_code:
+        Write('[ipdb] Debugger exited with status {}. See output above; retry with --plain for diagnostics.\r\n'.format(exit_code))
+    return exit_code

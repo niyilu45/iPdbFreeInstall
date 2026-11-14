@@ -28,6 +28,14 @@ class HistoryTests(unittest.TestCase):
         self.assertEqual(terminal.cursor.x, history.screen.cursor.x)
         self.assertEqual(terminal.cursor.y, history.screen.cursor.y + 2)
 
+    def test_exit_tail_keeps_error_without_terminal_controls(self):
+        history = OutputHistory(80, 3)
+        history.Feed(b'first\r\nsecond\r\nTraceback:\r\n\x1b[31mRuntimeError: failed\x1b[0m\r\n')
+        tail = history.Tail()
+        self.assertIn('Traceback:\nRuntimeError: failed', tail)
+        self.assertNotIn('\x1b', tail)
+        self.assertEqual(history.Tail(1), 'RuntimeError: failed')
+
     def test_partial_utf8_and_bounded_history(self):
         history = OutputHistory(20, 2, limit=3)
         history.Feed(b'caf\xc3')

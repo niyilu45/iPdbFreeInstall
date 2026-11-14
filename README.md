@@ -440,3 +440,15 @@ and wcwidth as well as ipdb/IPython, and adds missing files from the matching
 archive in dist without network access. Existing files are preserved. For an
 extracted release without dist, extract the latest matching ZIP into a new
 directory and run its ipdb.sh; do not copy only the launcher scripts.
+
+
+### Startup progress and unexpected exits
+
+The launcher prints the selected interpreter, dependency check, debugger loading
+and terminal initialization stages. First-run or upgrade extraction reports
+progress and completion time; subsequent launches reuse the dependencies.
+When the terminal debugger exits, the last 100 captured output lines are printed
+on the normal terminal screen so error messages remain visible. Nonzero exit
+status is also reported. If startup still fails, run `./ipdb.sh --plain my.py`
+and provide the complete traceback. The progress messages describe actual work;
+they do not imply a successful startup before the debugger prompt appears.
