@@ -580,3 +580,11 @@ to normal input before forwarding the event. Drag selection inside Vim can enter
 Vim Visual mode; press Escape to return to Normal mode. Shift+mouse is normally
 handled by the terminal for text copying and may bypass application focus; use
 a regular click before typing commands after terminal-side selection.
+
+
+System Vim source views now request a full redraw after viewport changes such
+as G/gg, horizontal scrolling, window switches and resizing. Redraw is queued
+after window events and coalesced; ordinary cursor movement within the same
+viewport does not force a full repaint. Debugger source synchronization also
+refreshes the screen after restoring the selected window. Ctrl-L remains Vim's
+manual redraw key. Linux tmux visual regression verification is still pending.

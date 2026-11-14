@@ -8,6 +8,45 @@ set mouse=a
 let s:last = ''
 highlight default IpdbExecution ctermbg=DarkGrey guibg=#444444
 sign define IpdbExecution text=>> texthl=Search linehl=IpdbExecution
+" Defer full redraw until window events finish; never redraw recursively.
+let s:screen_layout = ''
+let s:redraw_timer = -1
+let s:redrawing = 0
+function! IpdbSourceRedraw(force) abort
+  if s:redrawing
+    return 0
+  endif
+  let layout = string([win_getid(), winsaveview().topline, winsaveview().leftcol, winwidth(0), winheight(0)])
+  if a:force || layout !=# s:screen_layout
+    let s:redrawing = 1
+    try
+      if has('gui_running') || (has('ttyin') && has('ttyout'))
+        redraw!
+      endif
+      let s:screen_layout = string([win_getid(), winsaveview().topline, winsaveview().leftcol, winwidth(0), winheight(0)])
+    finally
+      let s:redrawing = 0
+    endtry
+    return 1
+  endif
+  return 0
+endfunction
+function! IpdbDeferredRedraw(timer) abort
+  let s:redraw_timer = -1
+  call IpdbSourceRedraw(0)
+endfunction
+function! IpdbQueueRedraw() abort
+  if s:redraw_timer == -1 && !s:redrawing
+    let s:redraw_timer = timer_start(10, function('IpdbDeferredRedraw'))
+  endif
+endfunction
+augroup PortableIpdbRedraw
+  autocmd!
+  autocmd CursorMoved,WinEnter,BufWinEnter,VimResized * call IpdbQueueRedraw()
+  if exists('##WinScrolled')
+    autocmd WinScrolled * call IpdbQueueRedraw()
+  endif
+augroup END
 function! IpdbSourcePoll(timer) abort
   if !empty($IPDB_VIM_CLOSE) && filereadable($IPDB_VIM_CLOSE)
     call timer_stop(g:ipdb_source_timer)
@@ -55,6 +94,7 @@ function! IpdbSourcePoll(timer) abort
     echohl None
   finally
     call win_gotoid(previous)
+    call IpdbSourceRedraw(1)
   endtry
 endfunction
 let g:ipdb_source_timer = timer_start(100, function('IpdbSourcePoll'), {'repeat': -1})
@@ -67,6 +107,7 @@ function! IpdbWindowMove(direction) abort
   if win_getid() == previous && !empty($IPDB_TMUX_SOCKET)
     let direction = {'h': '-L', 'j': '-D', 'k': '-U', 'l': '-R'}[a:direction]
     call system(shellescape($IPDB_TMUX_BIN) . ' -L ' . shellescape($IPDB_TMUX_SOCKET) . ' select-pane ' . direction)
+    call IpdbSourceRedraw(1)
   endif
 endfunction
 if !empty($IPDB_TMUX_SOCKET)

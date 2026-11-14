@@ -68,6 +68,21 @@ execute "normal! \\<C-w>2+"
 call assert_equal(oldheight + 2, winheight(0))
 execute "normal! \\<C-w>="
 call assert_true(abs(winheight(1) - winheight(2)) <= 1)
+only
+new
+call setline(1, map(range(1, 200), 'repeat(string(v:val), 60)'))
+vsplit
+wincmd l
+normal! gg
+let still = win_getid()
+wincmd h
+normal! G
+call assert_equal(200, line('.'))
+call assert_equal(1, IpdbSourceRedraw(1))
+call assert_true(winsaveview().topline > 1)
+call win_gotoid(still)
+call assert_equal(1, line('.'))
+call IpdbSourceRedraw(1)
 call writefile(v:errors, $IPDB_TEST_ERRORS)
 qa!
 ''')
