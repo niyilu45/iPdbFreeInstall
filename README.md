@@ -594,3 +594,16 @@ In system Vim mode, automatic file/line and source listings are shown only in
 Vim. The debugger pane retains display expressions, command results and errors.
 Explicit bt, where/w and list commands remain available when you want source
 or stack information in the command pane. Plain ipdb mode is unchanged.
+
+
+The readline debugger command loop explicitly enables Tab completion even when
+IPython initializes completekey=None. Examples: p vari<Tab>, disp vari<Tab>,
+and p object.attr<Tab>. Candidates use the selected frame's locals and globals;
+multiple candidates can be listed with Tab. The previous readline completer
+is restored when leaving the command loop.
+
+
+When stepping into another function, the Vim source bridge opens folds at the
+execution line and schedules a second full repaint after buffer/window events
+have settled. Only the main source window follows the step; other source windows
+remain at their saved positions. This supplements the immediate repaint.

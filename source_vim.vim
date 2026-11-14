@@ -12,6 +12,7 @@ sign define IpdbExecution text=>> texthl=Search linehl=IpdbExecution
 let s:screen_layout = ''
 let s:redraw_timer = -1
 let s:redrawing = 0
+let s:force_redraw = 0
 function! IpdbSourceRedraw(force) abort
   if s:redrawing
     return 0
@@ -33,9 +34,14 @@ function! IpdbSourceRedraw(force) abort
 endfunction
 function! IpdbDeferredRedraw(timer) abort
   let s:redraw_timer = -1
-  call IpdbSourceRedraw(0)
+  let force = s:force_redraw
+  let s:force_redraw = 0
+  call IpdbSourceRedraw(force)
 endfunction
-function! IpdbQueueRedraw() abort
+function! IpdbQueueRedraw(...) abort
+  if a:0 && a:1
+    let s:force_redraw = 1
+  endif
   if s:redraw_timer == -1 && !s:redrawing
     let s:redraw_timer = timer_start(10, function('IpdbDeferredRedraw'))
   endif
@@ -81,7 +87,7 @@ function! IpdbSourcePoll(timer) abort
       execute 'keepalt keepjumps hide edit ' . fnameescape(state.file)
     endif
     call cursor(state.line, 1)
-    normal! zz
+    normal! zvzz
     silent! sign unplace 7351
     execute 'sign place 7351 line=' . state.line . ' name=IpdbExecution buffer=' . bufnr('%')
     let s:last = raw
@@ -95,6 +101,7 @@ function! IpdbSourcePoll(timer) abort
   finally
     call win_gotoid(previous)
     call IpdbSourceRedraw(1)
+    call IpdbQueueRedraw(1)
   endtry
 endfunction
 let g:ipdb_source_timer = timer_start(100, function('IpdbSourcePoll'), {'repeat': -1})

@@ -75,6 +75,7 @@ def Matches(debugger, line, begin, end):
 
 def InstallCompletion(debugger_class):
     original = debugger_class.complete
+    original_cmdloop = debugger_class.cmdloop
 
     def Complete(self, text, state):
         if state == 0:
@@ -88,4 +89,12 @@ def InstallCompletion(debugger_class):
             return original(self, text, state)
         return candidates[state] if state < len(candidates) else None
 
+    def CommandLoop(self, intro=None):
+        # IPython core Pdb defaults completekey to None. Binding Tab alone
+        # does not install self.complete in cmd.Cmd's readline input loop.
+        if self.completekey is None:
+            self.completekey = 'tab'
+        return original_cmdloop(self, intro)
+
     debugger_class.complete = Complete
+    debugger_class.cmdloop = CommandLoop

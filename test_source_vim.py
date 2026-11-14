@@ -48,6 +48,20 @@ class VimTests(unittest.TestCase):
             self.assertIn('sample.py', after)
             self.assertEqual(json.loads(state.read_text())['line'], 3)
 
+    def test_step_into_function_publishes_new_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'helper.py').write_text('def helper():\n    return 42\n')
+            (root / 'sample.py').write_text('from helper import helper\nresult = helper()\n')
+            state = root / 'state'
+            launcher = Path(__file__).with_name('portable_ipdb.py').resolve()
+            result = subprocess.run([sys.executable, '-B', str(launcher), '--plain', str(root / 'sample.py')],
+                input='n\ns\nq\n', stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True,
+                cwd=directory, timeout=30,
+                env=dict(os.environ, IPDB_VIM_STATE=str(state), IPY_TEST_SIMPLE_PROMPT='1', IPYTHONDIR=directory))
+            self.assertEqual(result.returncode, 0, result.stdout)
+            self.assertEqual(Path(json.loads(state.read_text())['file']).name, 'helper.py')
+
     @unittest.skipUnless(shutil.which('vim'), 'System Vim required')
     def test_real_vim_loads_plugins_and_only_moves_main(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -58,6 +72,8 @@ class VimTests(unittest.TestCase):
             source = root / "source file.py"
             source.write_text('one\ntwo\nthree\nfour\n')
             state = root / 'state'
+            alternate = root / 'helper.py'
+            alternate.write_text('def helper():\n    return 42\n')
             Publish(state, str(source), 2)
             script = root / 'test.vim'
             script.write_text('''execute 'source ' . fnameescape($IPDB_BRIDGE)
@@ -81,6 +97,19 @@ call assert_equal(win_getid(1, 1), win_getid())
 call win_gotoid(win_getid(1, 1))
 call assert_equal(4, line('.'))
 call assert_equal('', get(g:, 'ipdb_source_error', ''))
+call win_gotoid(other)
+let oldbuffer = bufnr('%')
+let message.file = $IPDB_NEW_SOURCE
+let message.line = 2
+let message.event = 1000
+call writefile([json_encode(message)], $IPDB_VIM_STATE)
+call IpdbSourcePoll(0)
+sleep 30m
+call assert_equal(other, win_getid())
+call assert_equal(oldbuffer, bufnr('%'))
+call win_gotoid(win_getid(1, 1))
+call assert_equal(fnamemodify($IPDB_NEW_SOURCE, ':p'), expand('%:p'))
+call assert_equal(2, line('.'))
 only
 split
 wincmd j
@@ -107,7 +136,7 @@ call IpdbSourceRedraw(1)
 call writefile(v:errors, $IPDB_TEST_ERRORS)
 qa!
 ''')
-            env = dict(os.environ, IPDB_TEST_ROOT=str(root), IPDB_BRIDGE=str(Path(__file__).with_name('source_vim.vim').resolve()), IPDB_VIM_STATE=str(state), IPDB_VIM_READY=str(root / 'ready'), IPDB_TEST_ERRORS=str(root / 'errors'))
+            env = dict(os.environ, IPDB_TEST_ROOT=str(root), IPDB_NEW_SOURCE=str(alternate), IPDB_BRIDGE=str(Path(__file__).with_name('source_vim.vim').resolve()), IPDB_VIM_STATE=str(state), IPDB_VIM_READY=str(root / 'ready'), IPDB_TEST_ERRORS=str(root / 'errors'))
             result = subprocess.run([shutil.which('vim'), '-N', '-u', str(root / 'vimrc'), '-i', 'NONE', '-n', '-es', '-S', str(script)], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=20)
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual((root / 'ready').read_text().strip(), 'ready')
@@ -151,6 +180,13 @@ qa!
                 time.sleep(0.2)
                 os.write(master, b'\x17j')
                 time.sleep(0.2)
+                os.write(master, b'n\n')
+                WaitFor(b'ipdb>')
+                output.clear()
+                os.write(master, b'p val\t\n')
+                WaitFor(b'41')
+                self.assertNotIn(b'NameError', output)
+                output.clear()
                 os.write(master, b'\x175+\x17=c\n')
                 WaitFor(b'RESULT 42')
                 output.clear()
