@@ -6,6 +6,7 @@ import sys
 import tempfile
 import time
 import unittest
+import re
 
 from split_ipdb import KeyFilter, SourceRows, SourceBox, FitCells
 from unittest import mock
@@ -83,6 +84,27 @@ class SplitTests(unittest.TestCase):
         self.assertTrue(any('>     2 value += 1' in row for row in rows))
         self.assertEqual(FitCells('\u4e2d\u6587', 3), '\u4e2d ')
         self.assertEqual(SourceBox({}, 2, 80), [])
+
+    def test_vim_syntax_and_current_line(self):
+        from source_theme import TokenRows, CURRENT_BACKGROUND
+        lines = ['def calculate(value):', '    return "result", 42  # comment']
+        snapshot = {'file': 'demo.py', 'line': 2, 'lines': lines, 'syntax': TokenRows(lines)}
+        plain = SourceBox(snapshot, 6, 90)
+        colored = SourceBox(snapshot, 6, 90, color=True)
+        strip = lambda text: re.sub(r'\x1b\[[0-9;]*m', '', text)
+        self.assertEqual([strip(row) for row in colored], plain)
+        active = [row for row in colored if '\x1b[48;5;{}m'.format(CURRENT_BACKGROUND) in row]
+        self.assertEqual(len(active), 1)
+        self.assertIn('>     2', strip(active[0]))
+        self.assertTrue(all(row.endswith('\x1b[0m') for row in colored))
+        colors = {span[1] for row in snapshot['syntax'] for span in row}
+        self.assertGreaterEqual(len(colors), 4)
+
+    def test_multiline_string_lexing(self):
+        from source_theme import TokenRows
+        rows = TokenRows(['text = """hello', 'return 42', 'end"""'])
+        self.assertEqual(len({span[1] for span in rows[1]}), 1)
+        self.assertNotEqual(rows[1][0][1], TokenRows(['return 42'])[0][0][1])
 
     def test_split_hides_location_but_preserves_displays(self):
         import portable_ipdb

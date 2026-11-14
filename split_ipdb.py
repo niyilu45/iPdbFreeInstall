@@ -20,7 +20,7 @@ def FitCells(text, width, fill=' '):
     return ''.join(result) + fill * max(0, width - used)
 
 
-def SourceBox(snapshot, height, width):
+def SourceBox(snapshot, height, width, color=False):
     if height < 3 or width < 4:
         return []
     inside = width - 3
@@ -31,6 +31,25 @@ def SourceBox(snapshot, height, width):
         rows.append('|' + FitCells(content[index] if index < len(content) else '', inside) + '|')
     footer = ' Commands / output below | Ctrl-X A: split | Ctrl-X S: PuDB '
     rows.append('+' + FitCells(footer, inside, '-') + '+')
+    if color:
+        from source_theme import PaintLine, TokenRows, RESET
+        lines = snapshot.get('lines', [])
+        syntax = snapshot.get('syntax')
+        if syntax is None:
+            syntax = TokenRows(lines)
+        current = snapshot.get('line', 0)
+        offset = snapshot.get('offset', 1)
+        start = min(max(0, current - offset - (height - 2) // 2), max(0, len(lines) - (height - 2)))
+        border = '\x1b[48;5;0;38;5;244m'
+        rows[0] = border + rows[0] + RESET
+        rows[-1] = border + rows[-1] + RESET
+        for index in range(height - 2):
+            source_index = start + index
+            if source_index < len(lines):
+                body = PaintLine(syntax[source_index] if source_index < len(syntax) else [], offset + source_index, current, inside)
+            else:
+                body = '\x1b[48;5;0m' + ' ' * inside + RESET
+            rows[index + 1] = border + '|' + RESET + body + border + '|' + RESET
     return rows
 
 
@@ -143,8 +162,10 @@ def InstallHook(event_fd, ack_fd=None, split_state=None):
         filename = frame.f_code.co_filename
         lines = linecache.getlines(filename, frame.f_globals)
         offset = max(0, number - 100)
+        from source_theme import TokenRows
         message = {'file': filename, 'line': number, 'offset': offset + 1,
-                   'lines': [line[:1000] for line in lines[offset:number + 100]]}
+                   'lines': [line[:1000] for line in lines[offset:number + 100]],
+                   'syntax': TokenRows(lines)[offset:number + 100]}
         try:
             packet = (json.dumps(message, ensure_ascii=True) + '\n').encode('ascii')
             while packet:
@@ -229,7 +250,7 @@ def Run(arguments, start_split=True):
             return
         columns = dimensions[1]
         Write('\x1b7')
-        for row, text in enumerate(SourceBox(snapshot, source_height, columns), 1):
+        for row, text in enumerate(SourceBox(snapshot, source_height, columns, color=True), 1):
             Write('\x1b[{};1H\x1b[2K'.format(row) + text)
         Write('\x1b8')
 

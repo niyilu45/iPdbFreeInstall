@@ -302,3 +302,19 @@ ordinary ipdb position output. Explicit bt and where commands remain
 available. The shared layout state also follows terminal resizing and
 checkpoint restoration; a terminal smaller than 10 rows or 20 columns
 hides the source pane and restores ordinary output.
+
+## Vim dark source colors
+
+The source pane uses a Vim-based dark palette with 256-color ANSI output:
+keywords, function names, strings, numbers, operators, and comments have
+separate colors. Comments and strings use brighter dark-theme colors for
+readability. The current statement has a full-width gray CursorLine-style
+background and a bright yellow line number/marker. Borders and other line
+numbers remain muted. Colors reset at the end of each rendered row and do
+not change the command/output pane.
+
+Syntax is tokenized with the bundled Pygments Python lexer using full-file
+context, so multiline strings keep their coloring when the visible window
+moves. Tokenization is cached until the source text changes. A terminal
+with 256-color support gives the intended appearance (for example an SSH
+terminal using TERM=xterm-256color).
