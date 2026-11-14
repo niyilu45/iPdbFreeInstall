@@ -432,3 +432,11 @@ CPU loop with an end breakpoint, not terminal output throughput or startup time.
 The local Windows Python 3.9 measurement was approximately 0.49 s upstream versus
 0.19 s optimized (2.6x); native execution was about 0.003 s. Actual gains depend
 on the Python/IPython version and workload. Native Linux measurement is pending.
+
+
+If an older checkout reports `No module named pyte`, update the complete
+repository with `git pull` and launch again. The loader now checks for pyte
+and wcwidth as well as ipdb/IPython, and adds missing files from the matching
+archive in dist without network access. Existing files are preserved. For an
+extracted release without dist, extract the latest matching ZIP into a new
+directory and run its ipdb.sh; do not copy only the launcher scripts.

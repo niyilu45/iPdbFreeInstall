@@ -5,20 +5,27 @@ import tempfile
 import zipfile
 
 
+def Complete(target):
+    return all((target / name / '__init__.py').is_file()
+               for name in ('ipdb', 'IPython', 'pyte', 'wcwidth'))
+
+
 def Locate(base, platform, version):
     base = Path(base).resolve()
     tag = '{}-py{}{}'.format(platform, *version)
     root = base / 'vendor'
     target = root / tag
-    if (target / 'ipdb' / '__init__.py').is_file():
+    if Complete(target):
         return target
-    if (root / 'ipdb' / '__init__.py').is_file():
+    if Complete(root):
         return root
+    if (root / 'ipdb' / '__init__.py').is_file():
+        target = root
     archive = base / 'dist' / ('ipdb-' + tag + '.zip')
     if not archive.is_file():
         available = ', '.join(sorted(p.name for p in root.glob('*-py*') if p.is_dir())) or 'none'
         raise RuntimeError(
-            'No bundled ipdb for {}. Available dependency folders: {}. '
+            'Missing or incomplete bundled dependencies (ipdb, IPython, pyte, wcwidth) for {}. Available dependency folders: {}. '
             'Download and extract ipdb-{}.zip in full, or run from a complete '
             'repository checkout containing dist/ipdb-{}.zip. '
             'Use IPDB_PYTHON to select the matching interpreter.'.format(tag, available, tag, tag))
@@ -44,9 +51,17 @@ def Locate(base, platform, version):
                     destination.parent.mkdir(parents=True, exist_ok=True)
                     with bundle.open(member) as source, destination.open('wb') as output:
                         shutil.copyfileobj(source, output)
-        if not (staging / 'ipdb' / '__init__.py').is_file() or not (staging / 'IPython' / '__init__.py').is_file():
+        if not Complete(staging):
             raise RuntimeError('The offline archive is incomplete: {}'.format(archive))
         if target.exists():
-            raise RuntimeError('Incomplete dependency folder already exists: {}. Extract a fresh bundle into a new directory.'.format(target))
-        staging.rename(target)
+            # Add missing dependency files after validating the entire archive.
+            # Never remove or overwrite existing user files during repair.
+            for source in staging.rglob('*'):
+                if source.is_file():
+                    destination = target / source.relative_to(staging)
+                    if not destination.exists():
+                        destination.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.copy2(str(source), str(destination))
+        else:
+            staging.rename(target)
     return target

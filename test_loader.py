@@ -27,6 +27,8 @@ class LoaderTests(unittest.TestCase):
         with zipfile.ZipFile(str(base / 'dist/ipdb-linux-py39.zip'), 'w') as archive:
             archive.writestr(prefix + 'ipdb/__init__.py', '# sample')
             archive.writestr(prefix + 'IPython/__init__.py', '# sample')
+            archive.writestr(prefix + 'pyte/__init__.py', '# sample')
+            archive.writestr(prefix + 'wcwidth/__init__.py', '# sample')
             if bad:
                 archive.writestr(prefix + '../escape', 'unsafe')
 
@@ -39,6 +41,25 @@ class LoaderTests(unittest.TestCase):
             self.assertEqual(result, base / 'vendor/linux-py39')
             self.assertTrue((result / 'ipdb/__init__.py').is_file())
             self.assertEqual(Locate(base, 'linux', version[:2]), result)
+
+    def test_old_vendor_gets_missing_dependency_offline(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            self.MakeArchive(base)
+            target = base / 'vendor/linux-py39'
+            (target / 'ipdb').mkdir(parents=True)
+            (target / 'ipdb/__init__.py').write_text('# existing')
+            self.assertEqual(Locate(base, 'linux', (3, 9)), target)
+            self.assertTrue((target / 'pyte/__init__.py').is_file())
+            self.assertEqual((target / 'ipdb/__init__.py').read_text(), '# existing')
+
+    def test_incomplete_bundle_without_archive_has_recovery_message(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            (base / 'vendor/linux-py39/ipdb').mkdir(parents=True)
+            (base / 'vendor/linux-py39/ipdb/__init__.py').write_text('# existing')
+            with self.assertRaisesRegex(RuntimeError, 'pyte.*linux-py39'):
+                Locate(base, 'linux', (3, 9))
 
     def test_wrong_python_has_actionable_error(self):
         with tempfile.TemporaryDirectory() as directory:
