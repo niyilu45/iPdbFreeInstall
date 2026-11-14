@@ -24,6 +24,8 @@ def Build(version):
     env.update(python_version=version, python_full_version=version + '.0', sys_platform='linux', os_name='posix', platform_system='Linux', extra='')
     ipython = {'3.6': '7.16.3', '3.7': '7.34.0', '3.9': '8.18.1', '3.10': '8.18.1'}[version]
     pending = [Requirement('ipdb==0.13.13'), Requirement('ipython==' + ipython)]
+    pending.extend([Requirement('pudb==' + ('2020.1' if version == '3.6' else '2022.1')),
+                    Requirement('urwid==2.1.2'), Requirement('urwid-readline==0.13')])
     if version == '3.6':
         pending.append(Requirement('jedi==0.17.2'))
     selected = {}
@@ -39,12 +41,22 @@ def Build(version):
             if not SpecifierSet(spec).contains(selected[name][0]):
                 raise RuntimeError('Dependency conflict: ' + name + spec)
             continue
-        subprocess.check_call([sys.executable, '-m', 'pip', 'download', '--no-deps', '--only-binary=:all:', '--python-version', version, '--platform', 'any', '--dest', str(wheels), '--index-url', 'https://mirrors.aliyun.com/pypi/simple/', '--disable-pip-version-check', name + spec])
+        cached = []
+        for candidate in list(wheels.glob('*.whl')) + list((ROOT / 'vendor_wheels').glob('*.whl')):
+            with zipfile.ZipFile(candidate) as z:
+                metadata = email.message_from_bytes(z.read(next(n for n in z.namelist() if n.endswith('.dist-info/METADATA'))))
+            if canonicalize_name(metadata['Name']) == name and SpecifierSet(spec).contains(metadata['Version']):
+                cached.append(candidate)
+        if cached:
+            if cached[0].parent != wheels:
+                shutil.copyfile(cached[0], wheels / cached[0].name)
+        else:
+            subprocess.check_call([sys.executable, '-m', 'pip', 'download', '--no-deps', '--only-binary=:all:', '--python-version', version, '--platform', 'any', '--dest', str(wheels), '--index-url', 'https://mirrors.aliyun.com/pypi/simple/', '--disable-pip-version-check', name + spec])
         matches = []
         for path in wheels.glob('*.whl'):
             with zipfile.ZipFile(path) as z:
                 meta = email.message_from_bytes(z.read(next(n for n in z.namelist() if n.endswith('.dist-info/METADATA'))))
-            if canonicalize_name(meta['Name']) == name:
+            if canonicalize_name(meta['Name']) == name and SpecifierSet(spec).contains(meta['Version']):
                 matches.append((path, meta))
         path, meta = matches[-1]
         if not SpecifierSet(meta.get('Requires-Python', '')).contains(version + '.0'):

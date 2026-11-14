@@ -12,18 +12,22 @@ class KeyFilter:
     def Feed(self, data):
         output = bytearray()
         toggles = 0
+        switches = 0
         for value in data:
             if self.pending:
                 self.pending = False
                 if value in (ord('a'), 1):
                     toggles += 1
                     continue
+                if value in (ord('s'), 19):
+                    switches += 1
+                    continue
                 output.append(24)
             if value == 24:
                 self.pending = True
             else:
                 output.append(value)
-        return bytes(output), toggles
+        return bytes(output), toggles, switches
 
 
 def SourceRows(snapshot, height, width):
@@ -41,9 +45,57 @@ def SourceRows(snapshot, height, width):
     return rows
 
 
-def InstallHook(event_fd):
+def InstallHook(event_fd, ack_fd=None):
     from IPython.core.debugger import Pdb
     original = Pdb.print_stack_entry
+    original_interaction = Pdb.interaction
+    original_cmdloop = Pdb._cmdloop
+
+    def Send(message):
+        packet = (json.dumps(message) + '\n').encode('ascii')
+        while packet:
+            packet = packet[os.write(event_fd, packet):]
+
+    def ShowPudb(self, frame, traceback=None):
+        from pudb import _get_debugger
+        os.environ['TERM'] = os.environ.get('IPDB_TUI_TERM', 'xterm')
+        Send({'mode': 'pudb'})
+        if ack_fd is not None and os.read(ack_fd, 1) != b'1':
+            raise RuntimeError('Terminal handoff failed')
+        debugger = _get_debugger()
+        debugger.reset()
+        debugger.botframe = self.botframe
+        debugger.bottom_frame = self.botframe
+        debugger.breaks = self.breaks
+        debugger.interaction(frame, traceback)
+        self.breaks = debugger.breaks
+        if debugger.quitting:
+            self.set_quit()
+        else:
+            self._set_stopinfo(debugger.stopframe, debugger.returnframe, debugger.stoplineno)
+            current = frame
+            while current:
+                current.f_trace = self.trace_dispatch
+                current = current.f_back
+            sys.settrace(self.trace_dispatch)
+        return True
+
+    def DoPudb(self, argument):
+        """Continue this debugging session using the PuDB interface."""
+        self._portable_pudb = True
+        return ShowPudb(self, self.curframe)
+
+    def Interaction(self, frame, traceback):
+        if getattr(self, '_portable_pudb', False):
+            return ShowPudb(self, frame, traceback)
+        return original_interaction(self, frame, traceback)
+
+    def CommandLoop(self):
+        Send({'ready': True})
+        try:
+            return original_cmdloop(self)
+        finally:
+            Send({'ready': False})
 
     def PrintStackEntry(self, frame_lineno, *args, **kwargs):
         frame, number = frame_lineno
@@ -61,6 +113,9 @@ def InstallHook(event_fd):
         return original(self, frame_lineno, *args, **kwargs)
 
     Pdb.print_stack_entry = PrintStackEntry
+    Pdb.do_pudb = DoPudb
+    Pdb.interaction = Interaction
+    Pdb._cmdloop = CommandLoop
 
 
 def Run(arguments):
@@ -80,22 +135,29 @@ def Run(arguments):
     import tty
 
     read_fd, write_fd = os.pipe()
+    ack_read, ack_write = os.pipe()
     saved = termios.tcgetattr(sys.stdin.fileno())
     pid, master = pty.fork()
     if pid == 0:
         os.close(read_fd)
+        os.close(ack_write)
+        os.environ['IPDB_TUI_TERM'] = os.environ.get('TERM', 'xterm')
         os.environ['TERM'] = 'dumb'
         os.environ['IPY_TEST_SIMPLE_PROMPT'] = '1'
         try:
-            InstallHook(write_fd)
+            InstallHook(write_fd, ack_read)
             sys.argv = [sys.argv[0]] + arguments
             from ipdb.__main__ import main
             main()
         finally:
             os.close(write_fd)
+            os.close(ack_read)
         os._exit(0)
     os.close(write_fd)
+    os.close(ack_read)
     enabled = True
+    pudb_active = False
+    paused = False
     snapshot = {}
     event_buffer = b''
     keys = KeyFilter()
@@ -120,7 +182,7 @@ def Run(arguments):
         for row in range(2, source_height):
             text = content[row - 2] if row - 2 < len(content) else ''
             Write('\x1b[{};1H\x1b[2K'.format(row) + text)
-        footer = ' Source | Ctrl-X A: toggle | Ctrl-L: redraw | ipdb commands below '
+        footer = ' Ctrl-X A: split | Ctrl-X S: PuDB | Ctrl-L: redraw '
         Write('\x1b[{};1H\x1b[2K\x1b[7m'.format(source_height) + footer[:columns - 1] + '\x1b[0m\x1b8')
 
     def Resize(force=False):
@@ -131,7 +193,7 @@ def Run(arguments):
             return
         dimensions = new
         rows, columns = new
-        source_height = rows // 2 if enabled and rows >= 10 else 0
+        source_height = rows // 2 if enabled and not pudb_active and rows >= 10 else 0
         lower = max(1, rows - source_height)
         fcntl.ioctl(master, termios.TIOCSWINSZ, struct.pack('HHHH', lower, columns, 0, 0))
         Write('\x1b[r\x1b[2J\x1b[{};{}r\x1b[{};1H'.format(source_height + 1, rows, source_height + 1))
@@ -150,9 +212,18 @@ def Run(arguments):
                 while b'\n' in event_buffer:
                     packet, event_buffer = event_buffer.split(b'\n', 1)
                     try:
-                        snapshot = json.loads(packet.decode('ascii'))
+                        message = json.loads(packet.decode('ascii'))
                     except (ValueError, UnicodeError):
                         continue
+                    if message.get('mode') == 'pudb':
+                        pudb_active = True
+                        Resize(True)
+                        os.write(ack_write, b'1')
+                        continue
+                    if 'ready' in message:
+                        paused = message['ready']
+                        continue
+                    snapshot = message
                     DrawSource()
             if master in ready:
                 try:
@@ -168,7 +239,15 @@ def Run(arguments):
                 chunk = os.read(sys.stdin.fileno(), 4096)
                 if not chunk:
                     break
-                data, toggles = keys.Feed(chunk)
+                if pudb_active:
+                    os.write(master, chunk)
+                    continue
+                data, toggles, switches = keys.Feed(chunk)
+                if switches:
+                    if paused:
+                        data += b'\x15pudb\n'
+                    else:
+                        Write('\r\nPause at an ipdb prompt before switching to PuDB.\r\n')
                 if toggles % 2:
                     enabled = not enabled
                     Resize(True)
@@ -183,6 +262,7 @@ def Run(arguments):
         Write('\x1b[r\x1b[0m\x1b[?1049l')
         os.close(master)
         os.close(read_fd)
+        os.close(ack_write)
         waited, status = os.waitpid(pid, os.WNOHANG)
         if not waited:
             try:

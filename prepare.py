@@ -13,7 +13,8 @@ def Main():
         raise RuntimeError('Target already exists; use a clean folder: {}'.format(target))
     subprocess.check_call([
         sys.executable, '-m', 'pip', 'install', '--target', str(target),
-        '--no-compile', '-r', str(root / 'requirements.txt')])
+        '--no-compile', '--find-links', str(root / 'vendor_wheels'),
+        '-r', str(root / 'requirements.txt')])
 
 
 if __name__ == '__main__':

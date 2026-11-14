@@ -94,3 +94,22 @@ start the split-screen interface.
 Run python -m unittest test_split.py on Linux with the matching dependencies
 prepared in vendor. The Linux PTY test checks source display, stepping,
 variable inspection, toggling, program output, and debugger exit.
+
+## PuDB mode
+
+The offline archives now include PuDB: version 2020.1 for Python 3.6 and
+2022.1 for Python 3.7/3.9/3.10, with Urwid 2.1.2 in pure-Python mode.
+No additional installation is required.
+
+    IPDB_PYTHON=python3.7 sh ipdb.sh --pudb /path/to/main.py
+
+Or start --tui, stop at an empty ipdb prompt, then press Ctrl-X followed
+by S (Ctrl-X Ctrl-S also works). This hands the current paused session to
+PuDB without restarting the script. Use PuDB's n/s/c/b and ? commands.
+The PuDB mode remains active for subsequent stops; this shortcut is a
+one-way handoff, not a toggle back to ipdb. Ctrl-X A is available only in
+the ipdb split view. While the program is running, pause it before using
+the PuDB shortcut. Existing ipdb breakpoints are shared with PuDB.
+
+The terminal handoff remains pending native Linux verification. The local
+checks cover key decoding and package dependency integrity.

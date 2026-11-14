@@ -16,6 +16,11 @@ def Activate():
 Activate()
 
 if __name__ == '__main__':
+    if len(sys.argv) > 1 and sys.argv[1] == '--pudb':
+        del sys.argv[1]
+        from pudb.run import main
+        main()
+        sys.exit(0)
     if len(sys.argv) > 1 and sys.argv[1] == '--tui':
         from split_ipdb import Run
         try:

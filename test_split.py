@@ -8,15 +8,52 @@ import time
 import unittest
 
 from split_ipdb import KeyFilter, SourceRows
+from unittest import mock
+from types import SimpleNamespace
 
 
 class SplitTests(unittest.TestCase):
+    def test_pudb_handoff_state(self):
+        import portable_ipdb
+        from IPython.core.debugger import Pdb
+        from split_ipdb import InstallHook
+        frame = SimpleNamespace(f_back=None, f_trace=None)
+        trace = mock.Mock()
+        owner = SimpleNamespace(botframe=frame, curframe=frame, breaks={'sample.py': [2]},
+                                trace_dispatch=trace, _set_stopinfo=mock.Mock(), set_quit=mock.Mock())
+        debugger = SimpleNamespace(reset=mock.Mock(), interaction=mock.Mock(),
+                                   stopframe=frame, returnframe=None, stoplineno=9, quitting=False)
+        fake = SimpleNamespace(_get_debugger=lambda: debugger)
+        names = ('print_stack_entry', 'interaction', '_cmdloop', 'do_pudb')
+        original = {name: Pdb.__dict__.get(name) for name in names}
+        read_fd, write_fd = os.pipe()
+        try:
+            InstallHook(write_fd)
+            with mock.patch.dict(sys.modules, {'pudb': fake}), mock.patch('sys.settrace') as install, mock.patch.dict(os.environ):
+                self.assertTrue(Pdb.do_pudb(owner, ''))
+                self.assertTrue(owner._portable_pudb)
+                debugger.interaction.assert_called_once_with(frame, None)
+                owner._set_stopinfo.assert_called_once_with(frame, None, 9)
+                install.assert_called_once_with(trace)
+                self.assertIs(frame.f_trace, trace)
+                self.assertIs(debugger.breaks, owner.breaks)
+        finally:
+            os.close(read_fd)
+            os.close(write_fd)
+            for name, value in original.items():
+                if value is None:
+                    delattr(Pdb, name)
+                else:
+                    setattr(Pdb, name, value)
+
     def test_keys(self):
         keys = KeyFilter()
-        self.assertEqual(keys.Feed(b'n\n\x18'), (b'n\n', 0))
-        self.assertEqual(keys.Feed(b'a'), (b'', 1))
-        self.assertEqual(keys.Feed(b'\x18\x01'), (b'', 1))
-        self.assertEqual(keys.Feed(b'\x18z\x03'), (b'\x18z\x03', 0))
+        self.assertEqual(keys.Feed(b'n\n\x18'), (b'n\n', 0, 0))
+        self.assertEqual(keys.Feed(b'a'), (b'', 1, 0))
+        self.assertEqual(keys.Feed(b'\x18\x01'), (b'', 1, 0))
+        self.assertEqual(keys.Feed(b'\x18z\x03'), (b'\x18z\x03', 0, 0))
+        self.assertEqual(keys.Feed(b'\x18s'), (b'', 0, 1))
+        self.assertEqual(keys.Feed(b'\x18\x13'), (b'', 0, 1))
 
     def test_source(self):
         rows = SourceRows({'line': 3, 'offset': 1, 'lines': ['a', 'b', 'c', 'd']}, 3, 40)
