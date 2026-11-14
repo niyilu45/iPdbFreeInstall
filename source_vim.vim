@@ -5,6 +5,17 @@ if !exists('*timer_start') || !exists('*json_decode') || !exists('*win_getid')
 endif
 " Route clicks to the corresponding Vim window instead of terminal selection.
 set mouse=a
+" Avoid terminal line-scroll and background-erase optimizations in tmux.
+" Some outer terminals leave cells intact even after a normal Ctrl-L redraw.
+if !empty($IPDB_TMUX_SOCKET)
+  set nolazyredraw
+  if exists('&ttyscroll')
+    set ttyscroll=0
+  endif
+  if exists('&t_ut')
+    let &t_ut = ''
+  endif
+endif
 let s:last = ''
 highlight default IpdbExecution ctermbg=DarkGrey guibg=#444444
 sign define IpdbExecution text=>> texthl=Search linehl=IpdbExecution
@@ -13,18 +24,24 @@ let s:screen_layout = ''
 let s:redraw_timer = -1
 let s:redrawing = 0
 let s:force_redraw = 0
+function! IpdbViewSignature() abort
+  let view = winsaveview()
+  return string([win_getid(), bufnr('%'), b:changedtick, view,
+        \ winwidth(0), winheight(0), &wrap, &foldenable, &foldlevel,
+        \ foldclosed(line('.')), foldclosedend(line('.'))])
+endfunction
 function! IpdbSourceRedraw(force) abort
   if s:redrawing
     return 0
   endif
-  let layout = string([win_getid(), winsaveview().topline, winsaveview().leftcol, winwidth(0), winheight(0)])
+  let layout = IpdbViewSignature()
   if a:force || layout !=# s:screen_layout
     let s:redrawing = 1
     try
       if has('gui_running') || (has('ttyin') && has('ttyout'))
         redraw!
       endif
-      let s:screen_layout = string([win_getid(), winsaveview().topline, winsaveview().leftcol, winwidth(0), winheight(0)])
+      let s:screen_layout = IpdbViewSignature()
     finally
       let s:redrawing = 0
     endtry
@@ -48,12 +65,21 @@ function! IpdbQueueRedraw(...) abort
 endfunction
 augroup PortableIpdbRedraw
   autocmd!
-  autocmd CursorMoved,WinEnter,BufWinEnter,VimResized * call IpdbQueueRedraw()
+  autocmd CursorMoved,CursorMovedI * call IpdbQueueRedraw()
+  autocmd WinEnter,BufWinEnter,VimResized,TabEnter,FocusGained,InsertLeave * call IpdbQueueRedraw(1)
+  autocmd TextChanged,TextChangedI * call IpdbQueueRedraw(1)
+  if exists('##CmdlineLeave')
+    autocmd CmdlineLeave * call IpdbQueueRedraw(1)
+  endif
   if exists('##WinScrolled')
     autocmd WinScrolled * call IpdbQueueRedraw()
   endif
 augroup END
 function! IpdbSourcePoll(timer) abort
+  " Catch scrolling/folds without CursorMoved on older Vim versions.
+  if mode() !~# '^[ciR]'
+    call IpdbSourceRedraw(0)
+  endif
   if !empty($IPDB_VIM_CLOSE) && filereadable($IPDB_VIM_CLOSE)
     call timer_stop(g:ipdb_source_timer)
     if !empty(filter(getbufinfo(), 'v:val.changed'))
@@ -123,3 +149,5 @@ if !empty($IPDB_TMUX_SOCKET)
   nnoremap <silent> <C-w>k :call IpdbWindowMove('k')<CR>
   nnoremap <silent> <C-w>l :call IpdbWindowMove('l')<CR>
 endif
+
+command! IpdbViewInfo echo {'term': $TERM, 'vim': v:version, 'size': [&lines, &columns], 'view': winsaveview(), 'lazyredraw': &lazyredraw, 'ttyscroll': &ttyscroll, 'background_erase': &t_ut}

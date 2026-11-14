@@ -584,8 +584,8 @@ a regular click before typing commands after terminal-side selection.
 
 System Vim source views now request a full redraw after viewport changes such
 as G/gg, horizontal scrolling, window switches and resizing. Redraw is queued
-after window events and coalesced; ordinary cursor movement within the same
-viewport does not force a full repaint. Debugger source synchronization also
+after window events and coalesced; unchanged view signatures do not force
+another repaint. Debugger source synchronization also
 refreshes the screen after restoring the selected window. Ctrl-L remains Vim's
 manual redraw key. Linux tmux visual regression verification is still pending.
 
@@ -607,3 +607,16 @@ When stepping into another function, the Vim source bridge opens folds at the
 execution line and schedules a second full repaint after buffer/window events
 have settled. Only the main source window follows the step; other source windows
 remain at their saved positions. This supplements the immediate repaint.
+
+
+For system Vim under tmux, the bridge disables terminal line-scroll reuse
+(ttyscroll=0), delayed redraw, and background-color erase optimization (t_ut).
+This favors explicit repainting on terminals that leave old text behind.
+The view signature now includes buffer identity, edits, wrapped-line offsets,
+fold state and cursor/view changes. A low-frequency poll also covers old Vim
+versions where scrolling/folding does not emit a suitable window event.
+Regression scenarios include counted G, gg, searches, marks, page movement,
+horizontal scrolling, folds, edits and split-window navigation. This does not
+constitute validation of every terminal/Vim/plugin combination. If artifacts
+persist, :IpdbViewInfo reports the current terminal and viewport settings for
+diagnosis. These options apply only to the launched tmux Vim session.

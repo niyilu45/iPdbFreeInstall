@@ -79,6 +79,9 @@ class VimTests(unittest.TestCase):
             script.write_text('''execute 'source ' . fnameescape($IPDB_BRIDGE)
 call assert_equal(42, get(g:, 'portable_test_plugin', 0))
 call assert_equal('a', &mouse)
+call assert_equal(0, &ttyscroll)
+call assert_equal('', &t_ut)
+call assert_equal(0, &lazyredraw)
 call IpdbSourcePoll(0)
 call assert_equal(2, line('.'))
 vsplit
@@ -133,10 +136,39 @@ call assert_true(winsaveview().topline > 1)
 call win_gotoid(still)
 call assert_equal(1, line('.'))
 call IpdbSourceRedraw(1)
+for target in [10, 190, 35, 120, 1, 200]
+  execute 'normal! ' . target . 'G'
+  call assert_equal(target, line('.'))
+  call IpdbSourceRedraw(1)
+endfor
+setlocal nowrap
+normal! 50G30zl
+let horizontal = IpdbViewSignature()
+normal! zh
+call assert_notequal(horizontal, IpdbViewSignature())
+setlocal wrap
+normal! ggma
+call search('150', 'W')
+call assert_equal(150, line('.'))
+normal! 'a
+call assert_equal(1, line('.'))
+execute "normal! \\<C-f>"
+call IpdbSourceRedraw(1)
+execute "normal! \\<C-b>"
+call IpdbSourceRedraw(1)
+setlocal foldmethod=manual
+10,20fold
+normal! 10G
+let folded = IpdbViewSignature()
+normal! zo
+call assert_notequal(folded, IpdbViewSignature())
+let unchanged = IpdbViewSignature()
+call setline(10, 'replacement')
+call assert_notequal(unchanged, IpdbViewSignature())
 call writefile(v:errors, $IPDB_TEST_ERRORS)
 qa!
 ''')
-            env = dict(os.environ, IPDB_TEST_ROOT=str(root), IPDB_NEW_SOURCE=str(alternate), IPDB_BRIDGE=str(Path(__file__).with_name('source_vim.vim').resolve()), IPDB_VIM_STATE=str(state), IPDB_VIM_READY=str(root / 'ready'), IPDB_TEST_ERRORS=str(root / 'errors'))
+            env = dict(os.environ, IPDB_TMUX_SOCKET='test-only', IPDB_TMUX_BIN='tmux', IPDB_TEST_ROOT=str(root), IPDB_NEW_SOURCE=str(alternate), IPDB_BRIDGE=str(Path(__file__).with_name('source_vim.vim').resolve()), IPDB_VIM_STATE=str(state), IPDB_VIM_READY=str(root / 'ready'), IPDB_TEST_ERRORS=str(root / 'errors'))
             result = subprocess.run([shutil.which('vim'), '-N', '-u', str(root / 'vimrc'), '-i', 'NONE', '-n', '-es', '-S', str(script)], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=20)
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual((root / 'ready').read_text().strip(), 'ready')
