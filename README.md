@@ -39,8 +39,9 @@ Commands: n (next), s (step), c (continue), p expression, q (quit).
 
 ## Prepare from source
 
-A source checkout alone does not activate bundled dependencies. Extract the
-matching archive, or on a connected machine run the matching interpreter:
+A complete source checkout automatically extracts the matching archive from
+dist/ on first launch, without pip or internet. It needs write permission
+for vendor/. Alternatively, on a connected preparation machine run:
 
     python3.7 prepare.py
 
@@ -246,3 +247,23 @@ and return, for example. They never silently choose a command or repeat the
 previous one. dis is an explicit alias for disable; disp selects display.
 Prefix expansion only affects command words, not Python expression text.
 Use ! to explicitly execute Python when a variable name overlaps a command.
+
+
+## Diagnose missing ipdb
+
+Python 3.9.12 uses the py39 archive; the patch version does not affect selection.
+Always launch through ipdb.sh or portable_ipdb.py, not python -m ipdb:
+
+    IPDB_PYTHON=/path/to/python3.9 sh ipdb.sh --check
+    IPDB_PYTHON=/path/to/python3.9 sh ipdb.sh --tui /path/to/main.py
+
+--check prints the interpreter, Python version, dependency directory, and
+actual imported ipdb location. A complete git checkout now extracts its
+matching dist archive automatically on first launch. Extracted ZIP bundles
+already contain vendor and do not need this step. Preserve the entire bundle.
+Wrong interpreter versions or incomplete bundles produce an explicit message
+listing the expected package and available dependency folders.
+
+The vendor search path is kept separate from sys.path[0], which ipdb replaces
+with the debugged script directory. This prevents lazy imports from losing
+access to bundled dependencies after execution begins.
