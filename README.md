@@ -85,8 +85,10 @@ normal SSH terminal. Redirected input/output and TERM=dumb are not supported.
 The debuggee runs in a pseudo-terminal with simple prompts. Full-screen
 programs that manipulate terminal cursor positions are not supported.
 The source pane shows a window around the current line; unavailable source
-(e.g. dynamically generated code) leaves it blank. Switching layout clears
-the visible command area; it is not a persistent output log.
+(e.g. dynamically generated code) leaves it blank. Switching layout preserves command/output history and restores the recent
+lines that fit the new terminal area, including the current input and cursor.
+Up to 10,000 prior terminal rows are retained in memory during the session.
+History is not saved to a file; changing width does not reflow old lines.
 
 To stop at an in-code ipdb.set_trace(), launch the script using --tui and
 continue to the desired breakpoint. Importing portable_ipdb alone does not

@@ -23,7 +23,7 @@ def Build(version):
     env = default_environment()
     env.update(python_version=version, python_full_version=version + '.0', sys_platform='linux', os_name='posix', platform_system='Linux', extra='')
     ipython = {'3.6': '7.16.3', '3.7': '7.34.0', '3.9': '8.18.1', '3.10': '8.18.1'}[version]
-    pending = [Requirement('ipdb==0.13.13'), Requirement('ipython==' + ipython)]
+    pending = [Requirement('pyte==0.8.0'), Requirement('ipdb==0.13.13'), Requirement('ipython==' + ipython)]
     pending.extend([Requirement('pudb==' + ('2020.1' if version == '3.6' else '2022.1')),
                     Requirement('urwid==2.1.2'), Requirement('urwid-readline==0.13')])
     if version == '3.6':
@@ -81,7 +81,7 @@ def Build(version):
                             target.write_bytes(z.read(info))
                     continue
                 z.extract(info, vendor)
-    for filename in ('portable_ipdb.py', 'bundle_loader.py', 'launch_mode.py', 'source_theme.py', 'terminal_keys.py', 'split_ipdb.py', 'gdb_commands.py', 'completion.py', 'checkpoints.py', 'ipdb.sh', 'README.md'):
+    for filename in ('portable_ipdb.py', 'bundle_loader.py', 'launch_mode.py', 'source_theme.py', 'terminal_keys.py', 'output_history.py', 'split_ipdb.py', 'gdb_commands.py', 'completion.py', 'checkpoints.py', 'ipdb.sh', 'README.md'):
         shutil.copyfile(ROOT / filename, package / filename)
     (package / 'requirements.lock').write_text('\n'.join('{}=={}'.format(k, v[0]) for k, v in sorted(selected.items())) + '\n')
     (package / 'wheel-sha256.json').write_text(json.dumps({p.name: hashlib.sha256(p.read_bytes()).hexdigest() for _, p in selected.values()}, indent=2))

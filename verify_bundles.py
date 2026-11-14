@@ -37,6 +37,7 @@ def Main():
                     assert req.specifier.contains(dependency['Version']), raw
             assert packages['ipdb']['Version'] == '0.13.13'
             assert packages['pudb']['Version'] == ('2020.1' if version == '3.6' else '2022.1')
+            assert packages['pyte']['Version'] == '0.8.0'
             assert 'urwid' in packages
             assert 'pexpect' in packages and 'ptyprocess' in packages
         sums.append(hashlib.sha256(path.read_bytes()).hexdigest() + '  ' + path.name)

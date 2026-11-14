@@ -7,3 +7,4 @@ pudb==2020.1; python_version == "3.6"
 pudb==2022.1; python_version > "3.6"
 urwid==2.1.2
 urwid-readline==0.13
+pyte==0.8.0

@@ -271,6 +271,8 @@ def Run(arguments, start_split=True):
     dimensions = None
     source_height = 0
     status = None
+    from output_history import OutputHistory
+    output_history = OutputHistory(initial_size.columns, initial_size.lines - (initial_size.lines // 2 if split_state[0] else 0))
 
     def Write(data):
         if isinstance(data, str):
@@ -301,13 +303,18 @@ def Run(arguments, start_split=True):
         lower = max(1, rows - source_height)
         fcntl.ioctl(master, termios.TIOCSWINSZ, struct.pack('HHHH', lower, columns, 0, 0))
         Write('\x1b[r\x1b[2J\x1b[{};{}r\x1b[{};1H'.format(source_height + 1, rows, source_height + 1))
+        if not pudb_active:
+            output_history.Resize(columns, lower)
+            Write(output_history.Render(source_height + 1))
         DrawSource()
 
     try:
         tty.setraw(sys.stdin.fileno())
         Write('\x1b[?1049h')
         Resize(True)
-        Write('Shortcuts enabled: Ctrl-X then A = source; Ctrl-X then S = PuDB.\r\n')
+        banner = b'Shortcuts enabled: Ctrl-X then A = source; Ctrl-X then S = PuDB.\r\n'
+        output_history.Feed(banner)
+        Write(banner)
         while True:
             Resize()
             expired = navigation.Flush()
@@ -342,6 +349,8 @@ def Run(arguments, start_split=True):
                     break
                 if not chunk:
                     break
+                if not pudb_active:
+                    output_history.Feed(chunk)
                 Write(chunk)
             if sys.stdin.fileno() in ready:
                 chunk = os.read(sys.stdin.fileno(), 4096)

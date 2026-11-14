@@ -7,7 +7,7 @@ def Main():
     root = Path(__file__).resolve().parent
     for archive in (root / 'dist').glob('ipdb-linux-*.zip'):
         prefix = archive.stem + '/'
-        replacement = {prefix + name: (root / name).read_bytes() for name in ('portable_ipdb.py', 'bundle_loader.py', 'launch_mode.py', 'source_theme.py', 'terminal_keys.py', 'split_ipdb.py', 'gdb_commands.py', 'completion.py', 'checkpoints.py', 'ipdb.sh', 'README.md')}
+        replacement = {prefix + name: (root / name).read_bytes() for name in ('portable_ipdb.py', 'bundle_loader.py', 'launch_mode.py', 'source_theme.py', 'terminal_keys.py', 'output_history.py', 'split_ipdb.py', 'gdb_commands.py', 'completion.py', 'checkpoints.py', 'ipdb.sh', 'README.md')}
         temporary = archive.with_suffix('.tmp')
         with zipfile.ZipFile(archive) as old, zipfile.ZipFile(temporary, 'w', zipfile.ZIP_DEFLATED) as new:
             for info in old.infolist():

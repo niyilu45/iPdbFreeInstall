@@ -11,3 +11,7 @@ Sources: https://pypi.org/project/pudb/2020.1/
 https://pypi.org/project/pudb/2022.1/
 https://pypi.org/project/urwid/2.1.2/
 https://pypi.org/project/urwid-readline/0.13/
+
+Pyte 0.8.0 is an unmodified upstream pure-Python wheel for terminal history
+parsing. Its LGPL license and metadata are retained in the wheel and bundles.
+Source: https://pypi.org/project/pyte/0.8.0/
