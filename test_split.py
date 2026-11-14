@@ -103,6 +103,10 @@ class SplitTests(unittest.TestCase):
         self.assertEqual(keys.Feed(b'\x18\x13'), (b'', 0, 1))
         self.assertEqual(keys.Feed(b'\x18S'), (b'', 0, 1))
         self.assertEqual(keys.Feed(b'\x18A'), (b'', 1, 0))
+        self.assertEqual(keys.Feed(b'\x18o'), (b'', 0, 0))
+        self.assertEqual(keys.focus_toggles, 1)
+        keys.Feed(b'n\n')
+        self.assertEqual(keys.focus_toggles, 0)
 
     def test_source(self):
         rows = SourceRows({'line': 3, 'offset': 1, 'lines': ['a', 'b', 'c', 'd']}, 3, 40)
@@ -114,7 +118,8 @@ class SplitTests(unittest.TestCase):
         rows = SourceBox({'file': 'demo.py', 'line': 2, 'lines': ['value = 1', 'value += 1']}, 7, 80)
         self.assertEqual(len(rows), 7)
         self.assertTrue(rows[0].startswith('+ Source: demo.py:2'))
-        self.assertTrue(rows[-1].startswith('+ Arrows: source'))
+        self.assertTrue(rows[-1].startswith('+ Focus: COMMAND'))
+        self.assertIn('Focus: SOURCE', SourceBox({'_source_focus': True}, 7, 80)[-1])
         self.assertTrue(all(len(row) == 79 for row in rows))
         self.assertTrue(all(row.startswith('|') and row.endswith('|') for row in rows[1:-1]))
         self.assertTrue(any('>     2 value += 1' in row for row in rows))

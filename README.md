@@ -324,7 +324,7 @@ terminal using TERM=xterm-256color).
 
 ## Source navigation and command editing
 
-While paused with the source pane visible:
+While paused with the source pane visible, press Ctrl-X then O to focus source:
 
 - Up/Down scroll source by one line.
 - Left/Right pan source horizontally by eight terminal cells; line numbers
@@ -335,8 +335,10 @@ While paused with the source pane visible:
 
 Browsing only changes the viewport, never the execution line. The complete
 source file is available for scrolling, rather than a limited nearby excerpt.
-In split view, use Ctrl-P/Ctrl-N for command history and Ctrl-B/Ctrl-F to move
-the command cursor. With source hidden, arrow keys are forwarded normally.
+Command input has focus by default in split view. Up/Down recall history,
+Left/Right move the command cursor, and Home/End edit the command normally.
+Ctrl-X then O toggles source/command focus; the border shows the active focus.
+Ctrl-P/Ctrl-N and Ctrl-B/Ctrl-F also remain available while source has focus.
 While the program is running or PuDB is active, arrows go to that program.
 
 Both ASCII Backspace (Ctrl-H) and DEL-style Backspace are normalized to the
@@ -367,8 +369,26 @@ still be called to enumerate attribute names. Internal adapter commands and
 the disabled down command are excluded from suggestions.
 
 Tab is forwarded to readline even while arrow keys are browsing source.
-PuDB retains its own completion behavior. --plain may use IPython's native
-prompt-toolkit completion instead of this readline adapter.
+PuDB retains its own completion behavior. Interactive Linux --plain and
+split modes now use the same readline debugger and completion adapter.
 
 Local completion tests pass. A Tab-completed variable command was also added
 to the Linux PTY test, which still requires native Linux execution.
+
+
+## Consistent input across layouts
+
+Interactive Linux --plain, shortcut-only, and split modes share one readline
+input backend: the same prompt, backspace handling, history, completion and
+editing bindings. Split mode defaults to COMMAND focus, so normal arrow keys
+remain command-editing keys. Ctrl-X O explicitly toggles SOURCE focus for
+source scrolling, then switches back to COMMAND focus. Ctrl-X A resets focus
+to COMMAND when changing the layout. Tab remains completion in either focus.
+
+Ctrl-L redraws the command line rather than allowing readline to clear the
+entire terminal over the source pane. The wrapper separately refreshes its
+layout. Plain-mode terminal settings are restored when the debugger exits.
+
+A Linux PTY parity test now runs the same backspace, Tab, cursor-editing and
+history commands in --plain and --tui. Native Linux execution remains pending
+in the Windows development environment.

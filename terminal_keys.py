@@ -44,7 +44,9 @@ class SourceKeys:
 def ConfigureInput():
     import sys
     import termios
-    attributes = termios.tcgetattr(sys.stdin.fileno())
+    saved = termios.tcgetattr(sys.stdin.fileno())
+    attributes = list(saved)
+    attributes[6] = list(saved[6])
     attributes[6][termios.VERASE] = b'\x7f'
     attributes[3] |= termios.ECHOE
     termios.tcsetattr(sys.stdin.fileno(), termios.TCSANOW, attributes)
@@ -56,6 +58,7 @@ def ConfigureInput():
         readline.parse_and_bind('"\\C-?": backward-delete-char')
         readline.parse_and_bind('"\\C-p": previous-history')
         readline.parse_and_bind('"\\C-n": next-history')
+        readline.parse_and_bind('"\\C-l": redraw-current-line')
     except ImportError:
         pass
     # This module can have been imported before the child environment changed.
@@ -72,3 +75,10 @@ def ConfigureInput():
         return Pdb
 
     ipdb_main._get_debugger_cls = SimpleDebuggerClass
+    return saved
+
+
+def RestoreInput(saved):
+    import sys
+    import termios
+    termios.tcsetattr(sys.stdin.fileno(), termios.TCSADRAIN, saved)

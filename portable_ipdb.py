@@ -57,4 +57,13 @@ if __name__ == '__main__':
             sys.exit(str(error))
     from ipdb.__main__ import main
     from checkpoints import Supervise
-    sys.exit(Supervise(main))
+    saved_input = None
+    if sys.platform.startswith('linux') and sys.stdin.isatty() and sys.stdout.isatty():
+        from terminal_keys import ConfigureInput, RestoreInput
+        saved_input = ConfigureInput()
+    try:
+        exit_code = Supervise(main)
+    finally:
+        if saved_input is not None:
+            RestoreInput(saved_input)
+    sys.exit(exit_code)

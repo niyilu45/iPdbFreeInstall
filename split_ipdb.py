@@ -53,7 +53,8 @@ def SourceBox(snapshot, height, width, color=False):
     content = SourceRows(snapshot, height - 2, inside + 1)
     for index in range(height - 2):
         rows.append('|' + FitCells(content[index] if index < len(content) else '', inside) + '|')
-    footer = ' Arrows: source | Home: current | Ctrl-X A: split | Ctrl-X S: PuDB '
+    focus = 'SOURCE' if snapshot.get('_source_focus', False) else 'COMMAND'
+    footer = ' Focus: {} | Ctrl-X O: focus | Ctrl-X A: split | Ctrl-X S: PuDB '.format(focus)
     rows.append('+' + FitCells(footer, inside, '-') + '+')
     if color:
         from source_theme import PaintLine, TokenRows, RESET
@@ -80,8 +81,10 @@ def SourceBox(snapshot, height, width, color=False):
 class KeyFilter:
     def __init__(self):
         self.pending = False
+        self.focus_toggles = 0
 
     def Feed(self, data):
+        self.focus_toggles = 0
         output = bytearray()
         toggles = 0
         switches = 0
@@ -93,6 +96,9 @@ class KeyFilter:
                     continue
                 if value in (ord('s'), ord('S'), 19):
                     switches += 1
+                    continue
+                if value in (ord('o'), ord('O'), 15):
+                    self.focus_toggles += 1
                     continue
                 output.append(24)
             if value == 24:
@@ -256,6 +262,7 @@ def Run(arguments, start_split=True):
     enabled = start_split
     pudb_active = False
     paused = False
+    source_focused = False
     snapshot = {}
     event_buffer = b''
     keys = KeyFilter()
@@ -276,7 +283,8 @@ def Run(arguments, start_split=True):
             return
         columns = dimensions[1]
         Write('\x1b7')
-        for row, text in enumerate(SourceBox(snapshot, source_height, columns, color=True), 1):
+        view = dict(snapshot, _source_focus=source_focused)
+        for row, text in enumerate(SourceBox(view, source_height, columns, color=True), 1):
             Write('\x1b[{};1H\x1b[2K'.format(row) + text)
         Write('\x1b8')
 
@@ -342,12 +350,15 @@ def Run(arguments, start_split=True):
                 if pudb_active:
                     os.write(master, chunk)
                     continue
-                chunk, actions = navigation.Feed(chunk, bool(source_height and paused))
+                data, toggles, switches = keys.Feed(chunk)
+                if keys.focus_toggles % 2 and source_height and paused:
+                    source_focused = not source_focused
+                    DrawSource()
+                data, actions = navigation.Feed(data, bool(source_height and paused and source_focused))
                 for action in actions:
                     ScrollSource(snapshot, action, max(1, source_height - 2), dimensions[1])
                 if actions:
                     DrawSource()
-                data, toggles, switches = keys.Feed(chunk)
                 if switches:
                     if paused:
                         data += b'\x15pudb\n'
@@ -355,6 +366,7 @@ def Run(arguments, start_split=True):
                         Write('\r\nPause at an ipdb prompt before switching to PuDB.\r\n')
                 if toggles % 2:
                     enabled = not enabled
+                    source_focused = False
                     Resize(True)
                     os.write(master, b'\x0c')
                 if b'\x0c' in data:
