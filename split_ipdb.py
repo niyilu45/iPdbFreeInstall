@@ -3,6 +3,35 @@ import json
 import linecache
 import os
 import sys
+import unicodedata
+
+
+def FitCells(text, width, fill=' '):
+    result = []
+    used = 0
+    for character in text:
+        if not character.isprintable():
+            character = ' '
+        size = 0 if unicodedata.combining(character) else (2 if unicodedata.east_asian_width(character) in ('W', 'F') else 1)
+        if used + size > width:
+            break
+        result.append(character)
+        used += size
+    return ''.join(result) + fill * max(0, width - used)
+
+
+def SourceBox(snapshot, height, width):
+    if height < 3 or width < 4:
+        return []
+    inside = width - 3
+    title = ' Source: {}:{} '.format(snapshot.get('file', 'Waiting for debugger'), snapshot.get('line', ''))
+    rows = ['+' + FitCells(title, inside, '-') + '+']
+    content = SourceRows(snapshot, height - 2, inside + 1)
+    for index in range(height - 2):
+        rows.append('|' + FitCells(content[index] if index < len(content) else '', inside) + '|')
+    footer = ' Commands / output below | Ctrl-X A: split | Ctrl-X S: PuDB '
+    rows.append('+' + FitCells(footer, inside, '-') + '+')
+    return rows
 
 
 class KeyFilter:
@@ -45,11 +74,19 @@ def SourceRows(snapshot, height, width):
     return rows
 
 
-def InstallHook(event_fd, ack_fd=None):
+def InstallHook(event_fd, ack_fd=None, split_state=None):
     from IPython.core.debugger import Pdb
     original = Pdb.print_stack_entry
     original_interaction = Pdb.interaction
     original_cmdloop = Pdb._cmdloop
+    original_where = Pdb.do_where
+
+    def Where(self, argument):
+        self._portable_force_stack_output = True
+        try:
+            return original_where(self, argument)
+        finally:
+            self._portable_force_stack_output = False
 
     def Send(message):
         packet = (json.dumps(message) + '\n').encode('ascii')
@@ -114,12 +151,19 @@ def InstallHook(event_fd, ack_fd=None):
                 packet = packet[os.write(event_fd, packet):]
         except OSError:
             pass
+        if split_state is not None and split_state[0] and not getattr(self, '_portable_force_stack_output', False):
+            show = getattr(self, '_portable_show_displays', None)
+            if show is not None:
+                show(frame)
+            return
         return original(self, frame_lineno, *args, **kwargs)
 
     Pdb.print_stack_entry = PrintStackEntry
     Pdb.do_pudb = DoPudb
     Pdb.interaction = Interaction
     Pdb._cmdloop = CommandLoop
+    Pdb.do_where = Where
+    Pdb.do_w = Where
 
 
 def Run(arguments, start_split=True):
@@ -137,7 +181,11 @@ def Run(arguments, start_split=True):
     import struct
     import termios
     import tty
+    import mmap
 
+    split_state = mmap.mmap(-1, 1)
+    initial_size = os.get_terminal_size(sys.stdout.fileno())
+    split_state[0] = int(start_split and initial_size.lines >= 10 and initial_size.columns >= 20)
     read_fd, write_fd = os.pipe()
     ack_read, ack_write = os.pipe()
     saved = termios.tcgetattr(sys.stdin.fileno())
@@ -149,7 +197,7 @@ def Run(arguments, start_split=True):
         os.environ['TERM'] = 'dumb'
         os.environ['IPY_TEST_SIMPLE_PROMPT'] = '1'
         try:
-            InstallHook(write_fd, ack_read)
+            InstallHook(write_fd, ack_read, split_state)
             sys.argv = [sys.argv[0]] + arguments
             from ipdb.__main__ import main
             from checkpoints import Supervise
@@ -179,16 +227,11 @@ def Run(arguments, start_split=True):
     def DrawSource():
         if not source_height:
             return
-        rows, columns = dimensions
-        title = '{}:{}'.format(snapshot.get('file', 'Waiting for debugger'), snapshot.get('line', ''))
-        title = ''.join(c if c.isprintable() else ' ' for c in title)
-        Write('\x1b7\x1b[1;1H\x1b[2K\x1b[7m' + title[:columns - 1] + '\x1b[0m')
-        content = SourceRows(snapshot, source_height - 2, columns)
-        for row in range(2, source_height):
-            text = content[row - 2] if row - 2 < len(content) else ''
+        columns = dimensions[1]
+        Write('\x1b7')
+        for row, text in enumerate(SourceBox(snapshot, source_height, columns), 1):
             Write('\x1b[{};1H\x1b[2K'.format(row) + text)
-        footer = ' Ctrl-X A: split | Ctrl-X S: PuDB | Ctrl-L: redraw '
-        Write('\x1b[{};1H\x1b[2K\x1b[7m'.format(source_height) + footer[:columns - 1] + '\x1b[0m\x1b8')
+        Write('\x1b8')
 
     def Resize(force=False):
         nonlocal dimensions, source_height
@@ -198,7 +241,8 @@ def Run(arguments, start_split=True):
             return
         dimensions = new
         rows, columns = new
-        source_height = rows // 2 if enabled and not pudb_active and rows >= 10 else 0
+        source_height = rows // 2 if enabled and not pudb_active and rows >= 10 and columns >= 20 else 0
+        split_state[0] = int(source_height > 0)
         lower = max(1, rows - source_height)
         fcntl.ioctl(master, termios.TIOCSWINSZ, struct.pack('HHHH', lower, columns, 0, 0))
         Write('\x1b[r\x1b[2J\x1b[{};{}r\x1b[{};1H'.format(source_height + 1, rows, source_height + 1))
@@ -269,6 +313,7 @@ def Run(arguments, start_split=True):
         os.close(master)
         os.close(read_fd)
         os.close(ack_write)
+        split_state.close()
         waited, status = os.waitpid(pid, os.WNOHANG)
         if not waited:
             try:

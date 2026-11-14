@@ -7,7 +7,7 @@ import tempfile
 import time
 import unittest
 
-from split_ipdb import KeyFilter, SourceRows
+from split_ipdb import KeyFilter, SourceRows, SourceBox, FitCells
 from unittest import mock
 from types import SimpleNamespace
 from launch_mode import SelectMode
@@ -34,7 +34,7 @@ class SplitTests(unittest.TestCase):
         debugger = SimpleNamespace(reset=mock.Mock(), interaction=mock.Mock(),
                                    stopframe=frame, returnframe=None, stoplineno=9, quitting=False)
         fake = SimpleNamespace(_get_debugger=lambda: debugger)
-        names = ('print_stack_entry', 'interaction', '_cmdloop', 'do_pudb')
+        names = ('print_stack_entry', 'interaction', '_cmdloop', 'do_pudb', 'do_where', 'do_w')
         original = {name: Pdb.__dict__.get(name) for name in names}
         read_fd, write_fd = os.pipe()
         try:
@@ -72,6 +72,50 @@ class SplitTests(unittest.TestCase):
         self.assertTrue(any(row.startswith('>     3 c') for row in rows))
         self.assertEqual(SourceRows({}, 5, 80), [])
         self.assertNotIn('\x1b', ''.join(SourceRows({'line': 1, 'lines': ['\x1b[2J']}, 5, 80)))
+
+    def test_source_box(self):
+        rows = SourceBox({'file': 'demo.py', 'line': 2, 'lines': ['value = 1', 'value += 1']}, 7, 80)
+        self.assertEqual(len(rows), 7)
+        self.assertTrue(rows[0].startswith('+ Source: demo.py:2'))
+        self.assertTrue(rows[-1].startswith('+ Commands / output below'))
+        self.assertTrue(all(len(row) == 79 for row in rows))
+        self.assertTrue(all(row.startswith('|') and row.endswith('|') for row in rows[1:-1]))
+        self.assertTrue(any('>     2 value += 1' in row for row in rows))
+        self.assertEqual(FitCells('\u4e2d\u6587', 3), '\u4e2d ')
+        self.assertEqual(SourceBox({}, 2, 80), [])
+
+    def test_split_hides_location_but_preserves_displays(self):
+        import portable_ipdb
+        from IPython.core.debugger import Pdb
+        from split_ipdb import InstallHook
+        names = ('print_stack_entry', 'interaction', '_cmdloop', 'do_pudb', 'do_where', 'do_w')
+        original = {name: Pdb.__dict__.get(name) for name in names}
+        read_fd, write_fd = os.pipe()
+        try:
+            original_output = mock.Mock()
+            Pdb.print_stack_entry = original_output
+            state = bytearray([1])
+            InstallHook(write_fd, split_state=state)
+            frame = SimpleNamespace(f_code=SimpleNamespace(co_filename='<test>'), f_globals={})
+            debugger = SimpleNamespace(_portable_show_displays=mock.Mock())
+            Pdb.print_stack_entry(debugger, (frame, 1))
+            original_output.assert_not_called()
+            debugger._portable_show_displays.assert_called_once_with(frame)
+            state[0] = 0
+            Pdb.print_stack_entry(debugger, (frame, 1))
+            original_output.assert_called_once()
+            state[0] = 1
+            debugger._portable_force_stack_output = True
+            Pdb.print_stack_entry(debugger, (frame, 1))
+            self.assertEqual(original_output.call_count, 2)
+        finally:
+            os.close(read_fd)
+            os.close(write_fd)
+            for name, value in original.items():
+                if value is None:
+                    delattr(Pdb, name)
+                else:
+                    setattr(Pdb, name, value)
 
     @unittest.skipUnless(sys.platform.startswith('linux'), 'Linux PTY required')
     def test_linux_session(self):

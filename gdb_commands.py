@@ -289,6 +289,7 @@ def Install():
     Pdb.do_down = Down
     Pdb.do_d = Pdb.do_clear
     Pdb.print_stack_entry = StackEntry
+    Pdb._portable_show_displays = ShowDisplays
     Pdb.do_display = Display
     Pdb.do_undisplay = Undisplay
     Pdb.do_enable_display = EnableDisplay

@@ -288,3 +288,17 @@ not python -m ipdb or a script that only imports ipdb. Shortcuts cannot be
 installed retroactively into an already-running plain debugger session.
 If an SSH client or terminal intercepts a key sequence, configure it to
 forward those keys, or launch --tui / --pudb directly.
+
+## Source pane layout
+
+The source pane is enclosed by a complete ASCII border. Its title shows the
+file and current line; > marks the current statement. The bottom border
+separates source from the command/input and program-output area.
+
+While the source pane is visible, automatic ipdb file/line/context output
+is suppressed in the lower area. disp values, program prints, command
+results, and errors remain visible. Turning the source pane off restores
+ordinary ipdb position output. Explicit bt and where commands remain
+available. The shared layout state also follows terminal resizing and
+checkpoint restoration; a terminal smaller than 10 rows or 20 columns
+hides the source pane and restores ordinary output.
