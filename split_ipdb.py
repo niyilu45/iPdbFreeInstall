@@ -16,10 +16,10 @@ class KeyFilter:
         for value in data:
             if self.pending:
                 self.pending = False
-                if value in (ord('a'), 1):
+                if value in (ord('a'), ord('A'), 1):
                     toggles += 1
                     continue
-                if value in (ord('s'), 19):
+                if value in (ord('s'), ord('S'), 19):
                     switches += 1
                     continue
                 output.append(24)
@@ -122,7 +122,7 @@ def InstallHook(event_fd, ack_fd=None):
     Pdb._cmdloop = CommandLoop
 
 
-def Run(arguments):
+def Run(arguments, start_split=True):
     if not sys.platform.startswith('linux'):
         raise RuntimeError('Split view requires Linux; use --plain on other systems')
     if not sys.stdin.isatty() or not sys.stdout.isatty():
@@ -160,7 +160,7 @@ def Run(arguments):
         os._exit(code or 0)
     os.close(write_fd)
     os.close(ack_read)
-    enabled = True
+    enabled = start_split
     pudb_active = False
     paused = False
     snapshot = {}
@@ -208,6 +208,7 @@ def Run(arguments):
         tty.setraw(sys.stdin.fileno())
         Write('\x1b[?1049h')
         Resize(True)
+        Write('Shortcuts enabled: Ctrl-X then A = source; Ctrl-X then S = PuDB.\r\n')
         while True:
             Resize()
             ready, _, _ = select.select([sys.stdin.fileno(), master, read_fd], [], [], 0.1)

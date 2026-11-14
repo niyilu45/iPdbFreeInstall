@@ -42,19 +42,19 @@ from gdb_commands import Install
 Install()
 
 if __name__ == '__main__':
-    if len(sys.argv) > 1 and sys.argv[1] == '--pudb':
-        del sys.argv[1]
+    from launch_mode import SelectMode
+    mode, arguments = SelectMode(sys.argv[1:])
+    sys.argv = [sys.argv[0]] + arguments
+    if mode == 'pudb':
         from pudb.run import main
         main()
         sys.exit(0)
-    if len(sys.argv) > 1 and sys.argv[1] == '--tui':
+    if mode in ('tui', 'keys'):
         from split_ipdb import Run
         try:
-            sys.exit(Run(sys.argv[2:]))
+            sys.exit(Run(arguments, start_split=(mode == 'tui')))
         except RuntimeError as error:
             sys.exit(str(error))
-    if len(sys.argv) > 1 and sys.argv[1] == '--plain':
-        del sys.argv[1]
     from ipdb.__main__ import main
     from checkpoints import Supervise
     sys.exit(Supervise(main))

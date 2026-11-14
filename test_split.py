@@ -10,9 +10,19 @@ import unittest
 from split_ipdb import KeyFilter, SourceRows
 from unittest import mock
 from types import SimpleNamespace
+from launch_mode import SelectMode
 
 
 class SplitTests(unittest.TestCase):
+    def test_launcher_modes(self):
+        self.assertEqual(SelectMode(['sample.py'], 'linux', True, 'xterm'), ('keys', ['sample.py']))
+        self.assertEqual(SelectMode(['--tui', 'sample.py'], 'linux', True, 'xterm'), ('tui', ['sample.py']))
+        self.assertEqual(SelectMode(['--plain', 'sample.py'], 'linux', True, 'xterm'), ('plain', ['sample.py']))
+        self.assertEqual(SelectMode(['--pudb', 'sample.py'], 'linux', True, 'xterm'), ('pudb', ['sample.py']))
+        for platform, interactive, terminal in [('win32', True, 'xterm'), ('linux', False, 'xterm'), ('linux', True, 'dumb')]:
+            self.assertEqual(SelectMode(['sample.py'], platform, interactive, terminal), ('plain', ['sample.py']))
+        self.assertEqual(SelectMode(['--help'], 'linux', True, 'xterm'), ('plain', ['--help']))
+
     def test_pudb_handoff_state(self):
         import portable_ipdb
         from IPython.core.debugger import Pdb
@@ -54,6 +64,8 @@ class SplitTests(unittest.TestCase):
         self.assertEqual(keys.Feed(b'\x18z\x03'), (b'\x18z\x03', 0, 0))
         self.assertEqual(keys.Feed(b'\x18s'), (b'', 0, 1))
         self.assertEqual(keys.Feed(b'\x18\x13'), (b'', 0, 1))
+        self.assertEqual(keys.Feed(b'\x18S'), (b'', 0, 1))
+        self.assertEqual(keys.Feed(b'\x18A'), (b'', 1, 0))
 
     def test_source(self):
         rows = SourceRows({'line': 3, 'offset': 1, 'lines': ['a', 'b', 'c', 'd']}, 3, 40)
@@ -75,7 +87,7 @@ class SplitTests(unittest.TestCase):
             master, slave = pty.openpty()
             fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 30, 100, 0, 0))
             env = dict(os.environ, TERM='xterm', IPYTHONDIR=directory)
-            process = subprocess.Popen([sys.executable, '-S', str(root / 'portable_ipdb.py'), '--tui', str(script)], stdin=slave, stdout=slave, stderr=slave, env=env)
+            process = subprocess.Popen([sys.executable, '-S', str(root / 'portable_ipdb.py'), str(script)], stdin=slave, stdout=slave, stderr=slave, env=env)
             output = bytearray()
 
             def ReadUntil(needle):
@@ -95,7 +107,9 @@ class SplitTests(unittest.TestCase):
 
             try:
                 ReadUntil(b'ipdb>')
-                ReadUntil(b'Source |')
+                ReadUntil(b'Shortcuts enabled:')
+                os.write(master, b'\x18a')
+                ReadUntil(b'Ctrl-X A: split')
                 output.clear()
                 os.write(master, b'n\n')
                 ReadUntil(b'ipdb>')

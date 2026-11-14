@@ -267,3 +267,24 @@ listing the expected package and available dependency folders.
 The vendor search path is kept separate from sys.path[0], which ipdb replaces
 with the debugged script directory. This prevents lazy imports from losing
 access to bundled dependencies after execution begins.
+
+## Shortcut-enabled startup (Linux)
+
+A normal interactive Linux launch now enables keyboard shortcuts automatically:
+
+    IPDB_PYTHON=python3.9 sh ipdb.sh your_script.py
+
+It starts with the source pane hidden and prints "Shortcuts enabled".
+Press Ctrl-X, release, then A to show/hide source. At a paused, empty ipdb
+prompt, press Ctrl-X, release, then S to enter PuDB. Ctrl-X Ctrl-A and
+Ctrl-X Ctrl-S are also accepted, as are uppercase A/S. Do not type a plus
+sign between keys.
+
+--tui enables the same shortcuts and shows source immediately. --plain
+explicitly disables the wrapper and shortcuts. Noninteractive pipes,
+TERM=dumb, and non-Linux platforms use plain mode by default. If the banner
+is absent, confirm that you launched the updated ipdb.sh/portable_ipdb.py,
+not python -m ipdb or a script that only imports ipdb. Shortcuts cannot be
+installed retroactively into an already-running plain debugger session.
+If an SSH client or terminal intercepts a key sequence, configure it to
+forward those keys, or launch --tui / --pudb directly.
