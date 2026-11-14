@@ -21,16 +21,31 @@ def Publish(path, filename, line):
 def InstallHook(path):
     from IPython.core.debugger import Pdb
     original = Pdb.print_stack_entry
+    original_where = Pdb.do_where
 
     def StackEntry(self, frame_lineno, *args, **kwargs):
+        if getattr(self, '_portable_vim_explicit_stack', False):
+            return original(self, frame_lineno, *args, **kwargs)
         frame, line = frame_lineno
         try:
             Publish(path, frame.f_code.co_filename, line)
         except OSError as error:
             self.error('Vim source sync failed: {}'.format(error))
-        return original(self, frame_lineno, *args, **kwargs)
+        show = getattr(self, '_portable_show_displays', None)
+        if show is not None:
+            show(frame)
+
+    def Where(self, argument):
+        previous = getattr(self, '_portable_vim_explicit_stack', False)
+        self._portable_vim_explicit_stack = True
+        try:
+            return original_where(self, argument)
+        finally:
+            self._portable_vim_explicit_stack = previous
 
     Pdb.print_stack_entry = StackEntry
+    Pdb.do_where = Where
+    Pdb.do_w = Where
 
 
 def Shell(arguments):

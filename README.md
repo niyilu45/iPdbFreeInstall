@@ -588,3 +588,9 @@ after window events and coalesced; ordinary cursor movement within the same
 viewport does not force a full repaint. Debugger source synchronization also
 refreshes the screen after restoring the selected window. Ctrl-L remains Vim's
 manual redraw key. Linux tmux visual regression verification is still pending.
+
+
+In system Vim mode, automatic file/line and source listings are shown only in
+Vim. The debugger pane retains display expressions, command results and errors.
+Explicit bt, where/w and list commands remain available when you want source
+or stack information in the command pane. Plain ipdb mode is unchanged.

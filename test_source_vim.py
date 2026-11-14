@@ -27,6 +27,27 @@ class VimTests(unittest.TestCase):
             self.assertTrue(os.path.isabs(value['file']))
             self.assertEqual(len(list(Path(directory).iterdir())), 1)
 
+    def test_command_pane_hides_automatic_source_but_keeps_displays(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            script = root / 'sample.py'
+            script.write_text('value = 41\nvalue += 1\nprint(value)\n')
+            state = root / 'state'
+            launcher = Path(__file__).with_name('portable_ipdb.py').resolve()
+            result = subprocess.run([sys.executable, '-B', str(launcher), '--plain', str(script)],
+                input="n\ndisp value\nn\nbt\n!print('MANUAL_STACK')\nwhere\nq\n",
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True,
+                timeout=30, cwd=directory,
+                env=dict(os.environ, IPDB_VIM_STATE=str(state), IPY_TEST_SIMPLE_PROMPT='1', IPYTHONDIR=directory))
+            self.assertEqual(result.returncode, 0, result.stdout)
+            before, after = result.stdout.split('MANUAL_STACK', 1)
+            self.assertNotIn('---->', before)
+            self.assertIn('value = 41', before)
+            self.assertIn('value = 42', before)
+            self.assertIn('#0', before)
+            self.assertIn('sample.py', after)
+            self.assertEqual(json.loads(state.read_text())['line'], 3)
+
     @unittest.skipUnless(shutil.which('vim'), 'System Vim required')
     def test_real_vim_loads_plugins_and_only_moves_main(self):
         with tempfile.TemporaryDirectory() as directory:
