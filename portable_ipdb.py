@@ -16,5 +16,13 @@ def Activate():
 Activate()
 
 if __name__ == '__main__':
+    if len(sys.argv) > 1 and sys.argv[1] == '--tui':
+        from split_ipdb import Run
+        try:
+            sys.exit(Run(sys.argv[2:]))
+        except RuntimeError as error:
+            sys.exit(str(error))
+    if len(sys.argv) > 1 and sys.argv[1] == '--plain':
+        del sys.argv[1]
     from ipdb.__main__ import main
     main()

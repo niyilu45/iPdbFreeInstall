@@ -1,0 +1,86 @@
+"""Split-view unit and Linux PTY integration tests."""
+import os
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
+import time
+import unittest
+
+from split_ipdb import KeyFilter, SourceRows
+
+
+class SplitTests(unittest.TestCase):
+    def test_keys(self):
+        keys = KeyFilter()
+        self.assertEqual(keys.Feed(b'n\n\x18'), (b'n\n', 0))
+        self.assertEqual(keys.Feed(b'a'), (b'', 1))
+        self.assertEqual(keys.Feed(b'\x18\x01'), (b'', 1))
+        self.assertEqual(keys.Feed(b'\x18z\x03'), (b'\x18z\x03', 0))
+
+    def test_source(self):
+        rows = SourceRows({'line': 3, 'offset': 1, 'lines': ['a', 'b', 'c', 'd']}, 3, 40)
+        self.assertTrue(any(row.startswith('>     3 c') for row in rows))
+        self.assertEqual(SourceRows({}, 5, 80), [])
+        self.assertNotIn('\x1b', ''.join(SourceRows({'line': 1, 'lines': ['\x1b[2J']}, 5, 80)))
+
+    @unittest.skipUnless(sys.platform.startswith('linux'), 'Linux PTY required')
+    def test_linux_session(self):
+        import fcntl
+        import pty
+        import select
+        import struct
+        import termios
+        root = Path(__file__).resolve().parent
+        with tempfile.TemporaryDirectory() as directory:
+            script = Path(directory) / 'sample.py'
+            script.write_text('value = 41\nprint("RESULT", value + 1)\n')
+            master, slave = pty.openpty()
+            fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 30, 100, 0, 0))
+            env = dict(os.environ, TERM='xterm', IPYTHONDIR=directory)
+            process = subprocess.Popen([sys.executable, '-S', str(root / 'portable_ipdb.py'), '--tui', str(script)], stdin=slave, stdout=slave, stderr=slave, env=env)
+            output = bytearray()
+
+            def ReadUntil(needle):
+                deadline = time.time() + 15
+                while time.time() < deadline:
+                    if needle in output:
+                        return
+                    if select.select([master], [], [], 0.1)[0]:
+                        try:
+                            chunk = os.read(master, 65536)
+                        except OSError:
+                            break
+                        output.extend(chunk)
+                    if process.poll() is not None:
+                        break
+                self.fail('Missing {!r}: {!r}'.format(needle, bytes(output[-4000:])))
+
+            try:
+                ReadUntil(b'ipdb>')
+                ReadUntil(b'Source |')
+                output.clear()
+                os.write(master, b'n\n')
+                ReadUntil(b'ipdb>')
+                output.clear()
+                os.write(master, b'p value\n')
+                ReadUntil(b'41')
+                os.write(master, b'\x18a')
+                time.sleep(0.2)
+                os.write(master, b'\x18a')
+                output.clear()
+                os.write(master, b'c\n')
+                ReadUntil(b'RESULT 42')
+                os.write(master, b'q\n')
+                process.wait(timeout=10)
+                self.assertEqual(process.returncode, 0)
+            finally:
+                if process.poll() is None:
+                    process.kill()
+                    process.wait()
+                os.close(slave)
+                os.close(master)
+
+
+if __name__ == '__main__':
+    unittest.main()

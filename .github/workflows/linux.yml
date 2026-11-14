@@ -1,0 +1,29 @@
+name: Linux split view
+on: [push, workflow_dispatch]
+jobs:
+  terminal:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - python: '3.6'
+            tag: py36
+          - python: '3.7'
+            tag: py37
+          - python: '3.9'
+            tag: py39
+          - python: '3.10'
+            tag: py310
+    steps:
+      - uses: actions/checkout@v4
+      - name: Extract matching offline bundle
+        run: |
+          unzip -q dist/ipdb-linux-${{ matrix.tag }}.zip -d /tmp/ipdb-test
+          cp test_split.py /tmp/ipdb-test/ipdb-linux-${{ matrix.tag }}/
+      - name: Test without site packages or dependency installation
+        run: >-
+          docker run --rm
+          -v /tmp/ipdb-test/ipdb-linux-${{ matrix.tag }}:/work
+          -w /work python:${{ matrix.python }}
+          python -S -B -m unittest test_split.py -v

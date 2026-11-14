@@ -67,3 +67,30 @@ performed in the Windows build environment. Report the full traceback,
 Python version, and archive name if a target runtime issue occurs.
 
 Upstream: https://pypi.org/project/ipdb/ and https://github.com/gotcha/ipdb
+
+## Split-screen mode (Linux)
+
+    IPDB_PYTHON=python3.7 sh ipdb.sh --tui /path/to/main.py
+
+The top half follows the selected source frame. The bottom half contains
+ipdb commands and live program stdout/stderr. Press Ctrl-X, then A to toggle
+the source pane (Ctrl-X Ctrl-A also works). Ctrl-L redraws the display.
+Normal n/s/c/p/b/u/d/q commands remain available. Ctrl-C goes to the debuggee.
+Resizing the terminal adjusts both panes. Below 10 terminal rows, the source
+pane is hidden. --plain selects the original scrolling debugger.
+
+This mode requires an interactive Linux ANSI terminal, such as xterm or a
+normal SSH terminal. Redirected input/output and TERM=dumb are not supported.
+The debuggee runs in a pseudo-terminal with simple prompts. Full-screen
+programs that manipulate terminal cursor positions are not supported.
+The source pane shows a window around the current line; unavailable source
+(e.g. dynamically generated code) leaves it blank. Switching layout clears
+the visible command area; it is not a persistent output log.
+
+To stop at an in-code ipdb.set_trace(), launch the script using --tui and
+continue to the desired breakpoint. Importing portable_ipdb alone does not
+start the split-screen interface.
+
+Run python -m unittest test_split.py on Linux with the matching dependencies
+prepared in vendor. The Linux PTY test checks source display, stepping,
+variable inspection, toggling, program output, and debugger exit.
