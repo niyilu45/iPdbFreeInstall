@@ -415,3 +415,20 @@ box scrolls three lines per notch, regardless of keyboard focus. Mouse reports
 are not passed into debugger input. Mouse capture is disabled when leaving
 split view, entering PuDB, or exiting. Use the terminal's selection modifier
 (usually Shift) to select text while mouse capture is active.
+
+
+### Continue performance
+
+Continue mode skips IPython's stepping-only frame inspection while retaining
+normal breakpoint evaluation, conditions, ignore counts and temporary breaks.
+Step/next/return behavior is unchanged. Continuing without breakpoints already
+disables Python tracing; this optimization targets runs with breakpoints.
+Python 3.6-3.10 still use tracing when breakpoints are present, so they cannot
+be expected to match normal execution speed, especially in tight Python loops.
+
+Run `python benchmark_speed.py` from a source checkout for a repeatable comparison
+of native execution, upstream tracing and optimized tracing. This measures a
+CPU loop with an end breakpoint, not terminal output throughput or startup time.
+The local Windows Python 3.9 measurement was approximately 0.49 s upstream versus
+0.19 s optimized (2.6x); native execution was about 0.003 s. Actual gains depend
+on the Python/IPython version and workload. Native Linux measurement is pending.

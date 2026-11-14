@@ -38,6 +38,8 @@ if __name__ == '__main__' and sys.argv[1:] == ['--check']:
     print('Dependencies: {}'.format(vendor_path))
     print('ipdb: {}'.format(ipdb.__file__))
     sys.exit(0)
+from debugger_speed import Install as InstallSpeed
+InstallSpeed()
 from gdb_commands import Install
 Install()
 
