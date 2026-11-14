@@ -9,7 +9,7 @@ import unittest
 import re
 
 from split_ipdb import KeyFilter, SourceRows, SourceBox, FitCells, ViewStart, ScrollSource
-from terminal_keys import SourceKeys
+from terminal_keys import SourceKeys, PaneKeys
 from unittest import mock
 from types import SimpleNamespace
 from launch_mode import SelectMode
@@ -22,12 +22,42 @@ class SplitTests(unittest.TestCase):
         self.assertEqual(keys.Feed(b'A', True), (b'', ['up']))
         self.assertEqual(keys.Feed(b'\x1bOB\x1b[C\x1b[D', True), (b'', ['down', 'right', 'left']))
         self.assertEqual(keys.Feed(b'\x1b[A', False), (b'\x1b[A', []))
-        self.assertEqual(keys.Feed(b'p valuX\x08e\x7f', True), (b'p valuX\x7fe\x7f', []))
+        self.assertEqual(keys.Feed(b'p valuX\x08e\x7f', False), (b'p valuX\x7fe\x7f', []))
         self.assertEqual(keys.Feed(b'\t', True), (b'\t', []))
         self.assertEqual(keys.Feed(b'\x1b[3~', True), (b'\x1b[3~', []))
         keys.Feed(b'\x1b', True)
         keys.started -= 1
         self.assertEqual(keys.Flush(), b'\x1b')
+
+    def test_vim_navigation(self):
+        keys = SourceKeys()
+        self.assertEqual(keys.Feed(b'hjklggG\x02\x06\x15\x04zz0$', True),
+                         (b'', ['left', 'down', 'up', 'right', 'first', 'last',
+                                'page_up', 'page_down', 'half_up', 'half_down', 'home', 'line_start', 'line_end']))
+        self.assertEqual(keys.Feed(b'hjklggG', False), (b'hjklggG', []))
+        snapshot = {'lines': ['x' * 200] * 100}
+        ScrollSource(snapshot, 'last', 10, 80)
+        self.assertEqual(snapshot['_top'], 90)
+        ScrollSource(snapshot, 'half_up', 10, 80)
+        self.assertEqual(snapshot['_top'], 85)
+        ScrollSource(snapshot, 'first', 10, 80)
+        self.assertEqual(snapshot['_top'], 0)
+        ScrollSource(snapshot, 'line_end', 10, 80)
+        self.assertGreater(snapshot['_left'], 0)
+        ScrollSource(snapshot, 'line_start', 10, 80)
+        self.assertEqual(snapshot['_left'], 0)
+
+    def test_pane_chords_and_mouse_fragments(self):
+        keys = PaneKeys()
+        events = []
+        for value in b'\x17k\x1b[<64;10;3M\x17jnext':
+            events.extend(keys.Feed(bytes([value]), True, 15))
+        self.assertEqual(events[:3], [('focus', 'k'), ('scroll', 'up'), ('focus', 'j')])
+        self.assertEqual(b''.join(value for kind, value in events[3:]), b'next')
+        self.assertEqual(keys.Feed(b'\x1b[<65;10;20M', True, 15), [])
+        self.assertEqual(keys.Feed(b'\x1b[<65;10;4M', True, 15), [('scroll', 'down')])
+        self.assertEqual(keys.Feed(b'\x1b[A', True, 15), [('input', b'\x1b[A')])
+        self.assertEqual(b''.join(value for kind, value in keys.Feed(b'\x17h', False, 0)), b'\x17h')
 
     def test_source_scroll_and_recenter(self):
         snapshot = {'line': 10, 'offset': 1, 'lines': ['x' * 200] * 40}
@@ -221,7 +251,7 @@ class SplitTests(unittest.TestCase):
                 os.write(master, b'n\n')
                 ReadUntil(b'ipdb>')
                 output.clear()
-                os.write(master, b'p valuX\x7fe\n')
+                os.write(master, b'\x17kggjj\x1b[<65;10;3M\x17jp valuX\x7fe\n')
                 ReadUntil(b'41')
                 output.clear()
                 os.write(master, b'p valuX\x08e\n')

@@ -18,8 +18,11 @@ def ScrollSource(snapshot, action, height, width):
         snapshot.pop('_top', None)
         snapshot['_left'] = 0
         return
-    if action in ('up', 'down', 'page_up', 'page_down'):
-        amount = {'up': -1, 'down': 1, 'page_up': -height, 'page_down': height}[action]
+    if action in ('first', 'last'):
+        snapshot['_top'] = 0 if action == 'first' else max(0, len(snapshot.get('lines', [])) - height)
+        return
+    if action in ('up', 'down', 'page_up', 'page_down', 'half_up', 'half_down'):
+        amount = {'up': -1, 'down': 1, 'page_up': -height, 'page_down': height, 'half_up': -max(1, height // 2), 'half_down': max(1, height // 2)}[action]
         snapshot['_top'] = min(max(0, ViewStart(snapshot, height) + amount), max(0, len(snapshot.get('lines', [])) - height))
     else:
         maximum = snapshot.get('_max_width')
@@ -27,6 +30,9 @@ def ScrollSource(snapshot, action, height, width):
             maximum = max([sum(0 if unicodedata.combining(c) else (2 if unicodedata.east_asian_width(c) in ('W', 'F') else 1) for c in line.expandtabs(4).rstrip('\n')) for line in snapshot.get('lines', [])] or [0])
             snapshot['_max_width'] = maximum
         limit = max(0, maximum - max(1, width - 11))
+        if action in ('line_start', 'line_end'):
+            snapshot['_left'] = 0 if action == 'line_start' else limit
+            return
         snapshot['_left'] = min(max(0, snapshot.get('_left', 0) + (8 if action == 'right' else -8)), limit)
 
 
@@ -54,7 +60,7 @@ def SourceBox(snapshot, height, width, color=False):
     for index in range(height - 2):
         rows.append('|' + FitCells(content[index] if index < len(content) else '', inside) + '|')
     focus = 'SOURCE' if snapshot.get('_source_focus', False) else 'COMMAND'
-    footer = ' Focus: {} | Ctrl-X O: focus | Ctrl-X A: split | Ctrl-X S: PuDB '.format(focus)
+    footer = ' Focus: {} | Ctrl-W hjkl: focus | Ctrl-X A: split | Ctrl-X S: PuDB '.format(focus)
     rows.append('+' + FitCells(footer, inside, '-') + '+')
     if color:
         from source_theme import PaintLine, TokenRows, RESET
@@ -266,8 +272,9 @@ def Run(arguments, start_split=True):
     snapshot = {}
     event_buffer = b''
     keys = KeyFilter()
-    from terminal_keys import SourceKeys
+    from terminal_keys import SourceKeys, PaneKeys
     navigation = SourceKeys()
+    pane_keys = PaneKeys()
     dimensions = None
     source_height = 0
     status = None
@@ -300,6 +307,7 @@ def Run(arguments, start_split=True):
         rows, columns = new
         source_height = rows // 2 if enabled and not pudb_active and rows >= 10 and columns >= 20 else 0
         split_state[0] = int(source_height > 0)
+        Write('\x1b[?1000h\x1b[?1006h' if source_height else '\x1b[?1000l\x1b[?1006l')
         lower = max(1, rows - source_height)
         fcntl.ioctl(master, termios.TIOCSWINSZ, struct.pack('HHHH', lower, columns, 0, 0))
         Write('\x1b[r\x1b[2J\x1b[{};{}r\x1b[{};1H'.format(source_height + 1, rows, source_height + 1))
@@ -317,7 +325,7 @@ def Run(arguments, start_split=True):
         Write(banner)
         while True:
             Resize()
-            expired = navigation.Flush()
+            expired = pane_keys.Flush() + navigation.Flush()
             if expired:
                 os.write(master, expired)
             ready, _, _ = select.select([sys.stdin.fileno(), master, read_fd], [], [], 0.1)
@@ -363,10 +371,26 @@ def Run(arguments, start_split=True):
                 if keys.focus_toggles % 2 and source_height and paused:
                     source_focused = not source_focused
                     DrawSource()
-                data, actions = navigation.Feed(data, bool(source_height and paused and source_focused))
-                for action in actions:
-                    ScrollSource(snapshot, action, max(1, source_height - 2), dimensions[1])
-                if actions:
+                forwarded = bytearray()
+                redraw = False
+                for kind, value in pane_keys.Feed(data, bool(source_height), source_height):
+                    if kind == 'focus':
+                        if value in 'kj':
+                            source_focused = value == 'k'
+                        navigation.prefix = b''
+                        redraw = True
+                    elif kind == 'scroll':
+                        for unused in range(3):
+                            ScrollSource(snapshot, value, max(1, source_height - 2), dimensions[1])
+                        redraw = True
+                    else:
+                        typed, actions = navigation.Feed(value, bool(source_height and source_focused))
+                        forwarded.extend(typed)
+                        for action in actions:
+                            ScrollSource(snapshot, action, max(1, source_height - 2), dimensions[1])
+                        redraw = redraw or bool(actions)
+                data = bytes(forwarded)
+                if redraw:
                     DrawSource()
                 if switches:
                     if paused:
@@ -385,7 +409,7 @@ def Run(arguments, start_split=True):
                         data = data[os.write(master, data):]
     finally:
         termios.tcsetattr(sys.stdin.fileno(), termios.TCSADRAIN, saved)
-        Write('\x1b[r\x1b[0m\x1b[?1049l')
+        Write('\x1b[?1000l\x1b[?1006l\x1b[r\x1b[0m\x1b[?1049l')
         os.close(master)
         os.close(read_fd)
         os.close(ack_write)

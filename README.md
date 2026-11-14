@@ -394,3 +394,24 @@ layout. Plain-mode terminal settings are restored when the debugger exits.
 A Linux PTY parity test now runs the same backspace, Tab, cursor-editing and
 history commands in --plain and --tui. Native Linux execution remains pending
 in the Windows development environment.
+
+
+### Vim source navigation and mouse
+
+In split view, press Ctrl-W, release it, then press k to focus the upper
+source pane or j to focus the lower command pane. Ctrl-W h/l select a pane
+to the left/right; with the current top/bottom layout they keep focus unchanged.
+Ctrl-X O remains available as a focus toggle. Outside split view Ctrl-W keeps
+its normal command-line editing behavior.
+
+With SOURCE focus, h/j/k/l scroll left/down/up/right, gg/G jump to the start/end
+of the file, Ctrl-B/F scroll a page, Ctrl-U/D scroll half a page, 0/$ scroll to
+the left/right edge, and zz recenters the execution line. This is a read-only
+source browser, not a full Vim editor. Return with Ctrl-W j before entering
+commands. Existing arrow keys and PageUp/PageDown remain available.
+
+On terminals supporting SGR mouse reporting, the mouse wheel over the source
+box scrolls three lines per notch, regardless of keyboard focus. Mouse reports
+are not passed into debugger input. Mouse capture is disabled when leaving
+split view, entering PuDB, or exiting. Use the terminal's selection modifier
+(usually Shift) to select text while mouse capture is active.
