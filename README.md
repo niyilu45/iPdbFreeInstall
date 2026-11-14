@@ -1,7 +1,9 @@
 # iPdbFreeInstall
 
-Portable ipdb launcher for Windows with an existing Python 3.9 interpreter.
+Portable ipdb launcher for Linux and Windows using an existing Python interpreter.
 Python itself is not bundled.
+The pinned dependency set requires Python 3.9 or newer; Python 3.9 is the
+current validation baseline. Newer Python versions have not been verified.
 
 ## Current status
 
@@ -15,18 +17,36 @@ On a connected preparation machine, run from this directory:
 
     python -m pip install --target vendor --no-compile -r requirements.txt
 
+On Linux, use python3 instead of python. Prepare dependencies on the same
+OS and Python version as the destination: do not reuse a Windows vendor
+folder on Linux. No global or system Python packages are modified.
+
 Then copy this entire folder, including vendor, to the destination computer.
 No pip installation is needed on the destination computer.
 Third-party packages retain their own licenses and metadata in vendor.
 
 ## Run
 
-From a terminal:
+Linux (from any working directory):
+
+    /path/to/iPdbFreeInstall/ipdb.sh path/to/script.py [arguments]
+
+Alternatively, if executable permissions were lost while copying:
+
+    sh /path/to/iPdbFreeInstall/ipdb.sh path/to/script.py [arguments]
+
+The Linux launcher prefers python3, then python from PATH. To select an
+existing interpreter, including a virtual environment:
+
+    IPDB_PYTHON=/path/to/venv/bin/python ./ipdb.sh path/to/script.py
+
+Windows:
 
     ipdb.cmd path\to\script.py [arguments]
 
 Set IPDB_PYTHON to a python.exe path to select a specific interpreter.
-Otherwise the launcher uses python from PATH.
+Otherwise the Windows launcher uses python from PATH. IPDB_PYTHON must be
+an executable path, not a command containing extra arguments.
 
 For an in-code breakpoint, add this directory to sys.path, then use:
 
@@ -42,3 +62,9 @@ The launcher syntax has been checked. Debugger execution has not been verified
 because the third-party dependencies could not be downloaded.
 
 Sources: https://pypi.org/project/ipdb/ and https://github.com/gotcha/ipdb
+
+Linux launcher validation: shell syntax and interpreter forwarding were
+checked under Git Bash on Windows using an existing ipdb installation.
+Native Linux execution and the bundled dependency set remain unverified.
+If vendor is absent, the launcher can also use ipdb already available in
+the selected interpreter.
