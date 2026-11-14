@@ -452,3 +452,22 @@ on the normal terminal screen so error messages remain visible. Nonzero exit
 status is also reported. If startup still fails, run `./ipdb.sh --plain my.py`
 and provide the complete traceback. The progress messages describe actual work;
 they do not imply a successful startup before the debugger prompt appears.
+
+
+### Source cursor, search and marks
+
+Use Ctrl-W k to focus source and Ctrl-W j to return to commands. The source
+browser has a light block cursor independent of the yellow execution marker.
+h/j/k/l and arrows move the cursor; pages, gg/G and 0/$ move through the file.
+The viewport follows the cursor. The mouse wheel scrolls the viewport only.
+
+Type /keyword and Enter for forward literal, case-sensitive search, or ?keyword
+for backward search. n repeats in the same direction, N reverses it; searches
+wrap at file boundaries. Backspace edits the query and Escape cancels it.
+The query/status appears in the source footer. No-match searches retain position.
+
+ma saves mark a at the browsing cursor (a-z supported). 'a jumps to its line;
+`a restores its exact column. Marks are local to each file and kept for this
+session across debugger stops; they are not saved on disk and do not change
+program execution. A new debugger stop places the browsing cursor at the
+execution line. zz returns the browser to that line.

@@ -251,7 +251,7 @@ class SplitTests(unittest.TestCase):
                 os.write(master, b'n\n')
                 ReadUntil(b'ipdb>')
                 output.clear()
-                os.write(master, b'\x17kggjj\x1b[<65;10;3M\x17jp valuX\x7fe\n')
+                os.write(master, b'\x17k/value\nmaggnN`a\x1b[<65;10;3M\x17jp valuX\x7fe\n')
                 ReadUntil(b'41')
                 output.clear()
                 os.write(master, b'p valuX\x08e\n')

@@ -26,10 +26,11 @@ jobs:
           cp test_completion.py /tmp/ipdb-test/ipdb-linux-${{ matrix.tag }}/
           cp test_history.py /tmp/ipdb-test/ipdb-linux-${{ matrix.tag }}/
           cp test_speed.py /tmp/ipdb-test/ipdb-linux-${{ matrix.tag }}/
+          cp test_browser.py /tmp/ipdb-test/ipdb-linux-${{ matrix.tag }}/
           cp test_input.py /tmp/ipdb-test/ipdb-linux-${{ matrix.tag }}/
       - name: Test without site packages or dependency installation
         run: >-
           docker run --rm
           -v /tmp/ipdb-test/ipdb-linux-${{ matrix.tag }}:/work
           -w /work python:${{ matrix.python }}
-          python -S -B -m unittest test_split.py test_gdb.py test_loader.py test_completion.py test_input.py test_history.py test_speed.py -v
+          python -S -B -m unittest test_split.py test_gdb.py test_loader.py test_completion.py test_input.py test_history.py test_speed.py test_browser.py -v

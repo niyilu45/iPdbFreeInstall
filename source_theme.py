@@ -53,7 +53,7 @@ def TokenRows(lines):
     return Tokenize(source)
 
 
-def PaintLine(spans, number, current, width, horizontal=0):
+def PaintLine(spans, number, current, width, horizontal=0, cursor=None):
     active = number == current
     background = CURRENT_BACKGROUND if active else BACKGROUND
     prefix = '{} {:5d} '.format('>' if active else ' ', number)
@@ -80,6 +80,12 @@ def PaintLine(spans, number, current, width, horizontal=0):
                         visible = ' ' * size
                 if used + size > width:
                     return ''.join(output) + ' ' * (width - used) + RESET
-                output.append(visible)
+                if index and cursor is not None and previous <= cursor < code_column:
+                    output.append('\x1b[48;5;250;38;5;16m' + visible + '\x1b[48;5;{};38;5;{}m'.format(background, color))
+                else:
+                    output.append(visible)
                 used += size
+    if cursor is not None and cursor >= code_column and used < width:
+        output.append('\x1b[48;5;250m \x1b[48;5;{}m'.format(background))
+        used += 1
     return ''.join(output) + ' ' * max(0, width - used) + RESET

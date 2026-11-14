@@ -61,6 +61,8 @@ def SourceBox(snapshot, height, width, color=False):
         rows.append('|' + FitCells(content[index] if index < len(content) else '', inside) + '|')
     focus = 'SOURCE' if snapshot.get('_source_focus', False) else 'COMMAND'
     footer = ' Focus: {} | Ctrl-W hjkl: focus | Ctrl-X A: split | Ctrl-X S: PuDB '.format(focus)
+    if snapshot.get('_source_focus'):
+        footer = ' Focus: SOURCE {}:{} | {} '.format(snapshot.get('_cursor_row', 0) + snapshot.get('offset', 1), snapshot.get('_cursor_col', 0) + 1, snapshot.get('_status') or '/ find | m mark | apostrophe jump')
     rows.append('+' + FitCells(footer, inside, '-') + '+')
     if color:
         from source_theme import PaintLine, TokenRows, RESET
@@ -77,7 +79,7 @@ def SourceBox(snapshot, height, width, color=False):
         for index in range(height - 2):
             source_index = start + index
             if source_index < len(lines):
-                body = PaintLine(syntax[source_index] if source_index < len(syntax) else [], offset + source_index, current, inside, snapshot.get('_left', 0))
+                body = PaintLine(syntax[source_index] if source_index < len(syntax) else [], offset + source_index, current, inside, snapshot.get('_left', 0), snapshot.get('_cursor_cell', 0) if snapshot.get('_source_focus') and source_index == snapshot.get('_cursor_row') else None)
             else:
                 body = '\x1b[48;5;0m' + ' ' * inside + RESET
             rows[index + 1] = border + '|' + RESET + body + border + '|' + RESET
@@ -270,6 +272,8 @@ def Run(arguments, start_split=True):
     paused = False
     source_focused = False
     snapshot = {}
+    from source_browser import SourceBrowser
+    browser = SourceBrowser()
     event_buffer = b''
     keys = KeyFilter()
     from terminal_keys import SourceKeys, PaneKeys
@@ -327,7 +331,11 @@ def Run(arguments, start_split=True):
             Resize()
             expired = pane_keys.Flush() + navigation.Flush()
             if expired:
-                os.write(master, expired)
+                if source_focused:
+                    browser.Cancel(snapshot)
+                    DrawSource()
+                else:
+                    os.write(master, expired)
             ready, _, _ = select.select([sys.stdin.fileno(), master, read_fd], [], [], 0.1)
             if read_fd in ready:
                 chunk = os.read(read_fd, 65536)
@@ -347,6 +355,8 @@ def Run(arguments, start_split=True):
                         paused = message['ready']
                         continue
                     snapshot = message
+                    browser.Cancel(snapshot)
+                    browser.Clamp(snapshot, max(1, source_height - 2), dimensions[1])
                     DrawSource()
             if master in ready:
                 try:
@@ -370,6 +380,8 @@ def Run(arguments, start_split=True):
                 data, toggles, switches = keys.Feed(chunk)
                 if keys.focus_toggles % 2 and source_height and paused:
                     source_focused = not source_focused
+                    browser.Cancel(snapshot)
+                    browser.Clamp(snapshot, max(1, source_height - 2), dimensions[1])
                     DrawSource()
                 forwarded = bytearray()
                 redraw = False
@@ -378,16 +390,21 @@ def Run(arguments, start_split=True):
                         if value in 'kj':
                             source_focused = value == 'k'
                         navigation.prefix = b''
+                        browser.Cancel(snapshot)
+                        browser.Clamp(snapshot, max(1, source_height - 2), dimensions[1])
                         redraw = True
                     elif kind == 'scroll':
                         for unused in range(3):
                             ScrollSource(snapshot, value, max(1, source_height - 2), dimensions[1])
                         redraw = True
                     else:
+                        if source_height and source_focused:
+                            value = browser.Feed(value, snapshot, max(1, source_height - 2), dimensions[1])
+                            redraw = True
                         typed, actions = navigation.Feed(value, bool(source_height and source_focused))
                         forwarded.extend(typed)
                         for action in actions:
-                            ScrollSource(snapshot, action, max(1, source_height - 2), dimensions[1])
+                            browser.Move(snapshot, action, max(1, source_height - 2), dimensions[1])
                         redraw = redraw or bool(actions)
                 data = bytes(forwarded)
                 if redraw:
