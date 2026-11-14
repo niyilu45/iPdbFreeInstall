@@ -570,3 +570,13 @@ window commands and affect Vim's internal splits. In the debugger pane the
 same keys adjust its tmux pane (the source pane receives the remaining space).
 Counts are capped at 9999 and tmux enforces available terminal space. Use
 Ctrl-W = in the debugger pane to restore equal source/debugger heights.
+
+
+Mouse clicks now select the corresponding source window or command pane and
+clear unfinished window-key/search prefixes. In the built-in source view, clicks
+also place the browsing cursor. System Vim mode enables mouse=a, allowing Vim
+to select its internal windows. In tmux, a click leaves copy mode and returns
+to normal input before forwarding the event. Drag selection inside Vim can enter
+Vim Visual mode; press Escape to return to Normal mode. Shift+mouse is normally
+handled by the terminal for text copying and may bypass application focus; use
+a regular click before typing commands after terminal-side selection.

@@ -97,6 +97,9 @@ def Run(arguments):
                 raise RuntimeError(ready)
             Tmux('split-window', '-v', '-l', str(max(3, size.lines // 2)), '-t', 'debug:0.0', Shell([sys.executable, base / 'source_vim.py', '--worker', root / 'config.json']))
             Tmux('set-option', '-t', 'debug', 'mouse', 'on')
+            mouse_action = 'select-pane -t = ; switch-client -T root ; if-shell -F "#{pane_in_mode}" "send-keys -X cancel" ; send-keys -M'
+            Tmux('bind-key', '-n', 'MouseDown1Pane', mouse_action)
+            Tmux('bind-key', '-T', 'ipdb-nav', 'MouseDown1Pane', mouse_action)
             Tmux('bind-key', 'k', 'select-pane', '-U')
             Tmux('bind-key', 'j', 'select-pane', '-D')
             def ResizeCommand(key):

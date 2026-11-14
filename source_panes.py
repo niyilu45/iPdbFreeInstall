@@ -75,6 +75,29 @@ class SourcePanes:
         self.browsers[new] = browser
         self.active = new
 
+    def Click(self, column, row, height, width):
+        for key, (y, x, h, w) in self.Layout(height, width).items():
+            if x <= column - 1 < x + w and y <= row - 1 < y + h:
+                self.active = key
+                view, browser = self.views[key], self.browsers[key]
+                browser.Cancel(view)
+                if y + 1 <= row - 1 < y + h - 1:
+                    from split_ipdb import ViewStart
+                    from source_browser import Cells
+                    line = ViewStart(view, max(1, h - 2)) + row - y - 2
+                    lines = view.get('lines', [])
+                    if line < len(lines):
+                        view['_cursor_row'] = line
+                        cell = max(0, column - x - 10) + view.get('_left', 0)
+                        text = lines[line].rstrip('\r\n')
+                        index = 0
+                        while index + 1 < len(text) and Cells(text[:index + 1]) <= cell:
+                            index += 1
+                        view['_cursor_col'] = index
+                browser.Clamp(view, max(1, h - 2), w)
+                return True
+        return False
+
     def Focus(self, direction, source_focused, height, width):
         boxes = self.Layout(height, width)
         boxes[-1] = (height, 0, 1, width)

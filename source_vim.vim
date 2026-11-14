@@ -3,6 +3,8 @@ if !exists('*timer_start') || !exists('*json_decode') || !exists('*win_getid')
   call writefile(['System Vim requires timers, JSON and window IDs'], $IPDB_VIM_READY)
   finish
 endif
+" Route clicks to the corresponding Vim window instead of terminal selection.
+set mouse=a
 let s:last = ''
 highlight default IpdbExecution ctermbg=DarkGrey guibg=#444444
 sign define IpdbExecution text=>> texthl=Search linehl=IpdbExecution

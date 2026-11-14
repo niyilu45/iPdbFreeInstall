@@ -403,6 +403,14 @@ def Run(arguments, start_split=True):
                         browser.Cancel(snapshot)
                         browser.Clamp(snapshot, pane_height, pane_width)
                         redraw = True
+                    elif kind == 'click':
+                        browser.Cancel(snapshot)
+                        navigation.prefix = b''
+                        navigation.pending = b''
+                        column, row = value
+                        source_focused = panes.Click(column, row, source_height, dimensions[1])
+                        snapshot, browser, pane_height, pane_width = Current()
+                        redraw = True
                     elif kind == 'scroll':
                         direction, column, row = value
                         for key, (y, x, h, w) in panes.Layout(source_height, dimensions[1]).items():

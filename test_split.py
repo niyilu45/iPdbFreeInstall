@@ -29,6 +29,12 @@ class SplitTests(unittest.TestCase):
         keys.started -= 1
         self.assertEqual(keys.Flush(), b'\x1b')
 
+    def test_mouse_click_decoder(self):
+        keys = PaneKeys()
+        self.assertEqual(keys.Feed(b'\x1b[<0;12;', True, 15), [])
+        self.assertEqual(keys.Feed(b'20M', True, 15), [('click', (12, 20))])
+        self.assertEqual(keys.Feed(b'\x1b[<0;12;20m', True, 15), [])
+
     def test_vim_navigation(self):
         keys = SourceKeys()
         self.assertEqual(keys.Feed(b'hjklggG\x02\x06\x15\x04zz0$', True),

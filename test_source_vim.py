@@ -41,6 +41,7 @@ class VimTests(unittest.TestCase):
             script = root / 'test.vim'
             script.write_text('''execute 'source ' . fnameescape($IPDB_BRIDGE)
 call assert_equal(42, get(g:, 'portable_test_plugin', 0))
+call assert_equal('a', &mouse)
 call IpdbSourcePoll(0)
 call assert_equal(2, line('.'))
 vsplit

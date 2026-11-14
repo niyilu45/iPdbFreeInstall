@@ -35,6 +35,18 @@ class PaneTests(unittest.TestCase):
         panes.Command('q', 20, 100)
         self.assertIn('cannot be closed', panes.views[0]['_status'])
 
+    def test_click_switches_window_and_command_focus(self):
+        panes = SourcePanes()
+        panes.Update({'file': 'a.py', 'line': 1, 'lines': ['abcdef'] * 10}, 20, 100)
+        panes.Command('vs', 20, 100)
+        second = panes.active
+        self.assertTrue(panes.Click(60, 3, 20, 100))
+        self.assertEqual(panes.active, second)
+        self.assertEqual(panes.views[second]['_cursor_row'], 1)
+        self.assertTrue(panes.Click(10, 2, 20, 100))
+        self.assertEqual(panes.active, 0)
+        self.assertFalse(panes.Click(10, 25, 20, 100))
+
     def test_colon_command_does_not_reach_debugger(self):
         panes = SourcePanes()
         browser, view = panes.browsers[0], panes.views[0]

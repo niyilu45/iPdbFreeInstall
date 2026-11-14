@@ -97,6 +97,8 @@ class PaneKeys:
                         match = re.fullmatch(br'\x1b\[<(\d+);(\d+);(\d+)([Mm])', self.pending)
                         if match:
                             button, column, row = map(int, match.groups()[:3])
+                            if button == 0 and match.group(4) == b'M':
+                                events.append(('click', (column, row)))
                             if 1 <= row <= source_height and button & 64 and match.group(4) == b'M':
                                 if button & 3 in (0, 1):
                                     events.append(('scroll', ('down' if button & 1 else 'up', column, row)))
