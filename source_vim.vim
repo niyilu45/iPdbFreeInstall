@@ -57,3 +57,19 @@ function! IpdbSourcePoll(timer) abort
 endfunction
 let g:ipdb_source_timer = timer_start(100, function('IpdbSourcePoll'), {'repeat': -1})
 call writefile(['ready'], $IPDB_VIM_READY)
+
+" Keep native Vim movement inside Vim; cross the tmux boundary at an edge.
+function! IpdbWindowMove(direction) abort
+  let previous = win_getid()
+  execute 'wincmd ' . a:direction
+  if win_getid() == previous && !empty($IPDB_TMUX_SOCKET)
+    let direction = {'h': '-L', 'j': '-D', 'k': '-U', 'l': '-R'}[a:direction]
+    call system(shellescape($IPDB_TMUX_BIN) . ' -L ' . shellescape($IPDB_TMUX_SOCKET) . ' select-pane ' . direction)
+  endif
+endfunction
+if !empty($IPDB_TMUX_SOCKET)
+  nnoremap <silent> <C-w>h :call IpdbWindowMove('h')<CR>
+  nnoremap <silent> <C-w>j :call IpdbWindowMove('j')<CR>
+  nnoremap <silent> <C-w>k :call IpdbWindowMove('k')<CR>
+  nnoremap <silent> <C-w>l :call IpdbWindowMove('l')<CR>
+endif

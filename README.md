@@ -540,3 +540,22 @@ execution with an isolated Vim configuration, and separate real Vim plugin and
 source-sync tests. The Windows Terminal pane path is not locally end-to-end
 tested because wt.exe is unavailable on the test machine. Opt in to visible
 console integration tests by setting IPDB_TEST_WINDOWS_CONSOLE=1.
+
+
+### Unified tmux window keys and saved-code restart
+
+In system Vim/tmux mode, Ctrl-W followed by h/j/k/l now navigates between
+source and debugger panes. Inside Vim, the same keys first move between Vim
+windows; at an edge they move to the neighboring tmux pane. Ctrl-B k/j still
+works. In the debugger pane Ctrl-W Ctrl-W sends the original Ctrl-W character
+(backward word deletion). These tmux mappings are session-local and do not
+change user configuration. Windows Terminal uses its own pane keys.
+
+After saving with :w, enter r (or run) at the ipdb prompt to restart using the
+saved script. Newly imported Python modules under the entry script's directory
+are evicted from the module cache and loaded from source, bypassing stale pyc
+files even for same-size saves with the same timestamp. Modules loaded before
+the debug session, modules outside that directory, and native extensions are
+not reloaded. This is a program restart, not live replacement of active frames.
+Breakpoints remain line-based; adjust them if edits move code. Existing fork
+checkpoints are discarded on restart so they cannot restore pre-edit state.

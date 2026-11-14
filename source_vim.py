@@ -77,6 +77,8 @@ def Run(arguments):
     print('[ipdb] Starting system Vim with your vimrc and plugins; Ctrl-B then k/j switches Vim/ipdb.', flush=True)
     with tempfile.TemporaryDirectory(prefix='ipdb-vim-') as directory:
         root = Path(directory)
+        environment['IPDB_TMUX_BIN'] = tmux
+        environment['IPDB_TMUX_SOCKET'] = command[2]
         environment['IPDB_VIM_STATE'] = str(root / 'source.json')
         environment['IPDB_VIM_READY'] = str(root / 'ready')
         config = {'state': environment['IPDB_VIM_STATE'], 'result': str(root / 'result'),
@@ -84,7 +86,7 @@ def Run(arguments):
         (root / 'config.json').write_text(json.dumps(config))
         size = shutil.get_terminal_size()
         try:
-            Tmux('new-session', '-d', '-s', 'debug', '-x', str(size.columns), '-y', str(size.lines), Shell([vim, '-S', base / 'source_vim.vim']))
+            source_id = Tmux('new-session', '-P', '-F', '#{pane_id}', '-d', '-s', 'debug', '-x', str(size.columns), '-y', str(size.lines), Shell([vim, '-S', base / 'source_vim.vim']))
             deadline = time.monotonic() + 20
             while not (root / 'ready').exists() and time.monotonic() < deadline:
                 time.sleep(0.1)
@@ -97,6 +99,10 @@ def Run(arguments):
             Tmux('set-option', '-t', 'debug', 'mouse', 'on')
             Tmux('bind-key', 'k', 'select-pane', '-U')
             Tmux('bind-key', 'j', 'select-pane', '-D')
+            Tmux('bind-key', '-n', 'C-w', 'if-shell', '-F', '#{==:#{pane_id},' + source_id + '}', 'send-keys C-w', 'switch-client -T ipdb-nav')
+            for key, direction in (('h', '-L'), ('j', '-D'), ('k', '-U'), ('l', '-R')):
+                Tmux('bind-key', '-T', 'ipdb-nav', key, 'select-pane', direction)
+            Tmux('bind-key', '-T', 'ipdb-nav', 'C-w', 'send-keys', 'C-w')
             Tmux('select-pane', '-t', 'debug:0.1')
             code = subprocess.call(command + ['attach-session', '-t', 'debug'], env=environment)
             return int((root / 'result').read_text()) if (root / 'result').exists() else code

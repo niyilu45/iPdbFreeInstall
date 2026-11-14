@@ -50,6 +50,8 @@ if __name__ == '__main__':
     print('[ipdb] Loading debugger...', file=sys.stderr, flush=True)
 from debugger_speed import Install as InstallSpeed
 InstallSpeed()
+from reload_code import Install as InstallReload
+InstallReload()
 from gdb_commands import Install
 Install()
 
