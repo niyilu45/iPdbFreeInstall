@@ -14,6 +14,8 @@ def Activate():
 
 
 Activate()
+from gdb_commands import Install
+Install()
 
 if __name__ == '__main__':
     if len(sys.argv) > 1 and sys.argv[1] == '--pudb':
@@ -30,4 +32,5 @@ if __name__ == '__main__':
     if len(sys.argv) > 1 and sys.argv[1] == '--plain':
         del sys.argv[1]
     from ipdb.__main__ import main
-    main()
+    from checkpoints import Supervise
+    sys.exit(Supervise(main))

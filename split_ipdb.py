@@ -82,6 +82,10 @@ def InstallHook(event_fd, ack_fd=None):
 
     def DoPudb(self, argument):
         """Continue this debugging session using the PuDB interface."""
+        from checkpoints import Manager
+        if Manager.entries:
+            self.error('Delete live checkpoints before switching to PuDB')
+            return
         self._portable_pudb = True
         return ShowPudb(self, self.curframe)
 
@@ -148,11 +152,12 @@ def Run(arguments):
             InstallHook(write_fd, ack_read)
             sys.argv = [sys.argv[0]] + arguments
             from ipdb.__main__ import main
-            main()
+            from checkpoints import Supervise
+            code = Supervise(main)
         finally:
             os.close(write_fd)
             os.close(ack_read)
-        os._exit(0)
+        os._exit(code or 0)
     os.close(write_fd)
     os.close(ack_read)
     enabled = True

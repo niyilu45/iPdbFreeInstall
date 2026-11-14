@@ -113,3 +113,72 @@ the PuDB shortcut. Existing ipdb breakpoints are shared with PuDB.
 
 The terminal handoff remains pending native Linux verification. The local
 checks cover key decoding and package dependency integrity.
+
+## GDB-style Python commands
+
+These commands work in the ipdb CLI and --tui modes. They are not a full
+GDB emulator: expressions are Python expressions, not C/C++ expressions.
+PuDB retains its own command/key interface.
+
+| Command | Behavior |
+| --- | --- |
+| bt / backtrace | List the stack, innermost frame numbered #0 |
+| bt 3 | Show the three innermost frames |
+| frame 1 / f 1 | Select frame #1; p and info locals use that frame |
+| up / down | Move through stack frames |
+| print expression / p expression | Evaluate a Python expression |
+| next / n, step / s, continue / c | Execute or resume |
+| finish / fin | Run until the current function returns |
+| run / r | Restart the script from the beginning |
+| break file.py:42 if count > 10 | Conditional breakpoint |
+| b 42 if name == "target" | Conditional breakpoint in current file |
+| condition 1 count == 20 | Change breakpoint #1's condition |
+| condition 1 | Remove breakpoint #1's condition |
+| info breakpoints / i b | List breakpoints |
+| disable 1 / enable 1 | Disable or enable breakpoint #1 |
+| delete 1 | Delete breakpoint #1 |
+| info locals / info args | Inspect the selected frame |
+| set var count = 5 | Assign a simple variable name (CPython) |
+
+The r alias now means run, as in GDB. Use finish or return for pdb's old r
+behavior. Existing Python breakpoint syntax with a comma also works.
+
+## Linux checkpoints (experimental)
+
+    checkpoint
+    info checkpoints
+    next
+    print value
+    restart 1
+    delete checkpoint 2
+
+A checkpoint is a frozen fork of the paused Python process. Restarting it
+restores process memory and the execution stack at the saved stop. It does
+not merely copy a variables dictionary. A stable supervisor keeps the
+terminal session alive while the active process changes.
+
+Limits:
+
+- Linux CLI launch only, with a single Python/native thread and at most
+  eight live snapshots. Native worker threads (for example from numerical
+  libraries) also cause checkpoint creation to be refused.
+- IPython's background history writer is stopped before the first fork;
+  persistent IPython history is then disabled for this session.
+- A restored checkpoint is consumed. Newer checkpoints are discarded;
+  earlier checkpoints remain. Create another checkpoint to save again.
+- Python debugger state, including breakpoints, is restored with the process.
+  This differs from GDB, which keeps debugger state separate.
+- Files, file offsets, sockets, subprocesses, shared memory, external writes,
+  and network effects are NOT restored. Use this for single-process,
+  in-memory calculations; it is not transactional rollback.
+- Process IDs change. Native extension fork-safety is not guaranteed.
+- Use quit to end the session and release snapshots. Delete all live
+  checkpoints before switching from ipdb to PuDB.
+- Checkpoints cannot be created by merely importing portable_ipdb into an
+  independently launched Python process; launch via ipdb.sh instead.
+
+Local tests cover bt/frame numbering, conditional breakpoint execution,
+variable assignment, and command translation. Linux fork restoration and
+terminal integration tests are included in CI, but have not been verified
+in the Windows development environment. Treat checkpoints as experimental
+until those tests pass on the target Linux/Python combination.
