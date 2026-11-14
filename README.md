@@ -182,3 +182,34 @@ variable assignment, and command translation. Linux fork restoration and
 terminal integration tests are included in CI, but have not been verified
 in the Windows development environment. Treat checkpoints as experimental
 until those tests pass on the target Linux/Python combination.
+
+## Automatic expression display
+
+    disp count
+    display values[0]
+    next
+    info display
+    disable display 1
+    enable display 1
+    undisplay 1
+    delete display 2
+
+Each expression gets a stable numeric ID and is evaluated immediately and
+at every ipdb stop, even if its value has not changed. Values are also
+refreshed when selecting a frame. Evaluation uses the currently displayed
+frame's Python globals and locals. An unavailable variable or another
+exception is shown inline; the expression stays registered and retries
+on later stops. Mutable objects are evaluated afresh rather than compared
+with a saved object reference.
+
+Bare display re-evaluates enabled items. info display lists all IDs and
+enabled states. enable/disable display and undisplay accept multiple IDs
+separated by spaces; omitting IDs applies to all displays. delete display
+is an alias for undisplay. Invalid IDs leave the whole requested operation
+unchanged. Display IDs are independent of breakpoint IDs and are not reused.
+
+Expressions are Python expressions and can have side effects; prefer
+read-only expressions. GDB slash formats (display/x) are not implemented;
+use disp hex(value) instead. These commands apply to ipdb and --tui;
+PuDB continues to use its own variable display. Checkpoint restoration also
+restores the display configuration saved with that checkpoint.

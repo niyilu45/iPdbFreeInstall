@@ -19,9 +19,52 @@ class CommandTests(unittest.TestCase):
                  'break sample.py:10 if x == 3': 'break sample.py:10, x == 3',
                  'b 10 if name == "a if b"': 'b 10, name == "a if b"',
                  'delete checkpoint 2': 'delete_checkpoint 2',
+                 'disp values[0]': 'display values[0]',
+                 'delete display 1 2': 'undisplay 1 2',
+                 'disable display 2': 'disable_display 2',
+                 'enable display': 'enable_display',
                  'delete 4': 'clear 4', 'r': 'run', '!print("if")': '!print("if")'}
         for command, expected in cases.items():
             self.assertEqual(Translate(command), expected)
+
+    def test_display_updates_and_recovers(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'display_sample.py'
+            path.write_text('values = [1]\nvalues[0] = 2\nfinished = True\n')
+            output = io.StringIO()
+            debugger = Pdb(stdin=io.StringIO(), stdout=output)
+            debugger.use_rawinput = False
+            debugger.cmdqueue = ['disp values[0]', 'next', 'next', 'quit']
+            debugger.run(compile(path.read_text(), str(path), 'exec'), {})
+            text = output.getvalue()
+            self.assertIn('1: values[0] = <NameError:', text)
+            self.assertIn('1: values[0] = 1', text)
+            self.assertIn('1: values[0] = 2', text)
+
+    def test_display_management_and_instance_isolation(self):
+        output = io.StringIO()
+        debugger = Pdb(stdin=io.StringIO(), stdout=output)
+        debugger.curframe = sys._getframe()
+        debugger.do_display('10 + 2')
+        debugger.do_display('20')
+        debugger.do_disable_display('1 99')
+        self.assertTrue(debugger._portable_displays[1]['enabled'])
+        debugger.do_disable_display('1')
+        self.assertFalse(debugger._portable_displays[1]['enabled'])
+        output.seek(0)
+        output.truncate()
+        debugger.do_display('')
+        self.assertNotIn('1:', output.getvalue())
+        self.assertIn('2: 20 = 20', output.getvalue())
+        debugger.do_enable_display('1')
+        debugger.do_undisplay('2')
+        debugger.do_display('30')
+        self.assertEqual(list(debugger._portable_displays), [1, 3])
+        second = Pdb(stdin=io.StringIO(), stdout=io.StringIO())
+        second.do_info('display')
+        self.assertEqual(second._portable_displays, {})
+        debugger.do_undisplay('')
+        self.assertEqual(debugger._portable_displays, {})
 
     def test_backtrace_and_frame_numbers(self):
         outer = SimpleNamespace(f_code=SimpleNamespace(co_name='outer', co_filename='sample.py'), f_locals={})

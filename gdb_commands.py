@@ -10,7 +10,7 @@ def Translate(line):
     argument = argument.strip()
     aliases = {'bt': 'backtrace', 'finish': 'return',
                'fin': 'return', 'print': 'p', 'cont': 'continue', 'r': 'run',
-               'f': 'frame', 'i': 'info'}
+               'f': 'frame', 'i': 'info', 'disp': 'display'}
     command = aliases.get(command, command)
     if command in ('break', 'b', 'tbreak'):
         parts = re.split(r'\s+if\s+', argument, maxsplit=1)
@@ -19,8 +19,13 @@ def Translate(line):
     if command == 'delete':
         if argument.startswith('checkpoint '):
             command, argument = 'delete_checkpoint', argument[len('checkpoint '):]
+        elif argument == 'display' or argument.startswith('display '):
+            command, argument = 'undisplay', argument[len('display'):].strip()
         else:
             command = 'clear'
+    if command in ('enable', 'disable') and (argument == 'display' or argument.startswith('display ')):
+        command += '_display'
+        argument = argument[len('display'):].strip()
     return command + (' ' + argument if argument else '')
 
 
@@ -31,12 +36,93 @@ def Install():
     Pdb._portable_gdb = True
     original = Pdb.precmd
     original_restart = Pdb.do_restart
+    original_stack_entry = Pdb.print_stack_entry
+
+    def DisplayEntries(self):
+        if not hasattr(self, '_portable_displays'):
+            self._portable_displays = {}
+            self._portable_display_next = 1
+        return self._portable_displays
+
+    def RenderDisplay(self, number, entry, frame):
+        try:
+            value = eval(entry['code'], frame.f_globals, frame.f_locals)
+            rendered = repr(value)
+        except Exception as error:
+            rendered = '<{}: {}>'.format(type(error).__name__, error)
+        self.message('{}: {} = {}'.format(number, entry['expression'], rendered))
+
+    def ShowDisplays(self, frame):
+        for number, entry in list(DisplayEntries(self).items()):
+            if entry['enabled']:
+                RenderDisplay(self, number, entry, frame)
+
+    def StackEntry(self, frame_lineno, *args, **kwargs):
+        result = original_stack_entry(self, frame_lineno, *args, **kwargs)
+        if not getattr(self, '_portable_pudb', False):
+            ShowDisplays(self, frame_lineno[0])
+        return result
+
+    def Display(self, argument):
+        """display EXPR (or disp EXPR): evaluate now and at every stop.
+
+        Bare display re-evaluates all enabled expressions. Use info display
+        to list IDs; enable/disable display ID and undisplay ID manage them.
+        Expressions use the selected frame and may have side effects.
+        """
+        expression = argument.strip()
+        if not expression:
+            ShowDisplays(self, self.curframe)
+            return
+        try:
+            code = compile(expression, '<display>', 'eval')
+        except SyntaxError as error:
+            self.error(str(error))
+            return
+        entries = DisplayEntries(self)
+        number = self._portable_display_next
+        self._portable_display_next += 1
+        entries[number] = {'expression': expression, 'code': code, 'enabled': True}
+        RenderDisplay(self, number, entries[number], self.curframe)
+
+    def ChangeDisplays(self, argument, action):
+        entries = DisplayEntries(self)
+        try:
+            numbers = list(dict.fromkeys(int(value) for value in argument.split())) if argument.strip() else list(entries)
+            unknown = [number for number in numbers if number not in entries]
+            if unknown:
+                raise ValueError('Unknown display IDs: {}'.format(', '.join(map(str, unknown))))
+        except ValueError as error:
+            self.error(str(error))
+            return
+        for number in numbers:
+            if action == 'delete':
+                del entries[number]
+            else:
+                entries[number]['enabled'] = action == 'enable'
+
+    def Undisplay(self, argument):
+        """undisplay [ID ...]: remove selected expressions, or all if omitted."""
+        ChangeDisplays(self, argument, 'delete')
+
+    def EnableDisplay(self, argument):
+        ChangeDisplays(self, argument, 'enable')
+
+    def DisableDisplay(self, argument):
+        ChangeDisplays(self, argument, 'disable')
 
     def Precmd(self, line):
         return original(self, Translate(line))
 
     def Info(self, argument):
-        """info breakpoints|locals|args|checkpoints"""
+        """info breakpoints|locals|args|checkpoints|display"""
+        if argument == 'display':
+            entries = DisplayEntries(self)
+            if not entries:
+                self.message('No display expressions')
+            for number, entry in entries.items():
+                self.message('{}: [{}] {}'.format(number, 'enabled' if entry['enabled'] else 'disabled', entry['expression']))
+            return
         if argument in ('break', 'breakpoints', 'b'):
             return self.do_break('')
         if argument == 'args':
@@ -55,7 +141,7 @@ def Install():
             for number, entry in sorted(Manager.entries.items()):
                 self.message('{}  {}:{}'.format(number, entry['file'], entry['line']))
             return
-        self.error('Usage: info breakpoints|locals|args|checkpoints')
+        self.error('Usage: info breakpoints|locals|args|checkpoints|display')
 
     def Frame(self, argument):
         """Select a frame; frame 0 is the innermost frame."""
@@ -137,6 +223,11 @@ def Install():
             self.error(str(error))
 
     Pdb.precmd = Precmd
+    Pdb.print_stack_entry = StackEntry
+    Pdb.do_display = Display
+    Pdb.do_undisplay = Undisplay
+    Pdb.do_enable_display = EnableDisplay
+    Pdb.do_disable_display = DisableDisplay
     Pdb.do_info = Info
     Pdb.do_backtrace = Backtrace
     Pdb.do_frame = Frame
