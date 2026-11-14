@@ -15,7 +15,7 @@ A fresh clone is therefore not yet an offline-ready portable debugger.
 
 On a connected preparation machine, run from this directory:
 
-    python -m pip install --target vendor --no-compile -r requirements.txt
+    python prepare.py
 
 On Linux, use python3 instead of python. Prepare dependencies on the same
 OS and Python version as the destination: do not reuse a Windows vendor
@@ -68,3 +68,23 @@ checked under Git Bash on Windows using an existing ipdb installation.
 Native Linux execution and the bundled dependency set remain unverified.
 If vendor is absent, the launcher can also use ipdb already available in
 the selected interpreter.
+
+## Python version selection
+
+Run prepare.py using each destination interpreter on a matching OS:
+
+    python3.6 prepare.py
+    python3.7 prepare.py
+    python3.9 prepare.py
+    python3.10 prepare.py
+
+Dependencies are separated under vendor/linux-py36, vendor/linux-py37,
+vendor/linux-py39, and vendor/linux-py310 (win32-pyXY on Windows).
+The launcher selects the matching folder automatically. Copy the complete
+folder after preparation; destination machines do not need pip or internet.
+
+Python 3.6 uses IPython 7.16.3 and Jedi 0.17.2; Python 3.7 uses IPython
+7.34.0; Python 3.9/3.10 use IPython 8.18.1. All use ipdb 0.13.13.
+These are compatibility targets, not a claim of completed runtime tests.
+Only Python 3.9 is available locally; the other interpreters and native
+Linux execution still require validation.
