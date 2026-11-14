@@ -484,3 +484,34 @@ The top-left MAIN window cannot be closed. Only MAIN follows debugger stops
 and frame changes; other windows keep their displayed file and browsing state.
 Mouse-wheel scrolling targets the window under the pointer without changing
 keyboard focus. Splitting is refused when the current window is too small.
+
+
+### System Vim mode
+
+Run `./ipdbVim.sh my.py [script arguments]` to always use the system Vim view.
+The equivalent explicit command is `./ipdb.sh --source-vim my.py`.
+The normal ipdb.sh default is unchanged. IPDB_PYTHON also works with ipdbVim.sh.
+
+This Linux mode requires vim and tmux on PATH. Vim must support timers, JSON,
+window IDs and signs (Vim 8+ with +timers, +eval and +signs). It launches real
+Vim with your normal vimrc and plugins; plugin compatibility still depends on
+your Vim build and each plugin's dependencies. No user configuration is rewritten.
+Vim startup is checked before starting the debuggee and reports a timeout/error
+instead of silently opening a broken session.
+
+The upper tmux pane is Vim; the lower pane is ipdb. Press Ctrl-B, release it,
+then k/j to move between these panes. Inside Vim, use native Ctrl-W navigation,
+:split, :vsplit, :q, searches, marks and plugins. Only the top-left window of
+the first Vim tab follows debugger stops. Other windows retain their views.
+The bridge places an execution sign without writing source files, and preserves
+modified buffers when switching source. Source-sync errors appear in Vim messages
+and g:ipdb_source_error. Allowing Vim/plugin actions to edit files is normal Vim
+behavior; edits do not reload code already running in Python.
+
+The mode uses its own temporary tmux server with default bindings and mouse
+support, independent of existing tmux sessions. It does not load ~/.tmux.conf.
+On debugger exit, output remains visible until Enter is pressed; save any Vim
+edits before confirming. Detaching ends this temporary session and its processes.
+The built-in Ctrl-X A/S layout and PuDB shortcuts are not active in this mode.
+Local validation includes real Windows Vim configuration/plugin loading and
+source synchronization; a complete Linux tmux interactive run is still pending.

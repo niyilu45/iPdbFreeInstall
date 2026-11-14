@@ -57,6 +57,12 @@ if __name__ == '__main__':
     from launch_mode import SelectMode
     mode, arguments = SelectMode(sys.argv[1:])
     sys.argv = [sys.argv[0]] + arguments
+    if mode == 'source-vim':
+        from source_vim import Run
+        try:
+            sys.exit(Run(arguments))
+        except (RuntimeError, OSError) as error:
+            sys.exit(str(error))
     if mode == 'pudb':
         from pudb.run import main
         main()
@@ -68,6 +74,10 @@ if __name__ == '__main__':
             sys.exit(Run(arguments, start_split=(mode == 'tui')))
         except RuntimeError as error:
             sys.exit(str(error))
+    import os
+    if os.environ.get('IPDB_VIM_STATE'):
+        from source_vim import InstallHook
+        InstallHook(os.environ['IPDB_VIM_STATE'])
     from ipdb.__main__ import main
     from checkpoints import Supervise
     saved_input = None

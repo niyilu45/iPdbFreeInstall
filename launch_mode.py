@@ -5,7 +5,7 @@ import sys
 
 def SelectMode(arguments, platform=None, interactive=None, terminal=None):
     arguments = list(arguments)
-    if arguments and arguments[0] in ('--tui', '--plain', '--pudb'):
+    if arguments and arguments[0] in ('--tui', '--plain', '--pudb', '--source-vim'):
         return arguments[0][2:], arguments[1:]
     platform = sys.platform if platform is None else platform
     if interactive is None:

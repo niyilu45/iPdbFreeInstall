@@ -81,7 +81,7 @@ def Build(version):
                             target.write_bytes(z.read(info))
                     continue
                 z.extract(info, vendor)
-    for filename in ('portable_ipdb.py', 'bundle_loader.py', 'launch_mode.py', 'source_theme.py', 'source_browser.py', 'source_panes.py', 'terminal_keys.py', 'debugger_speed.py', 'output_history.py', 'split_ipdb.py', 'gdb_commands.py', 'completion.py', 'checkpoints.py', 'ipdb.sh', 'README.md'):
+    for filename in ('portable_ipdb.py', 'bundle_loader.py', 'launch_mode.py', 'source_theme.py', 'source_browser.py', 'source_panes.py', 'source_vim.py', 'source_vim.vim', 'terminal_keys.py', 'debugger_speed.py', 'output_history.py', 'split_ipdb.py', 'gdb_commands.py', 'completion.py', 'checkpoints.py', 'ipdb.sh', 'ipdbVim.sh', 'README.md'):
         shutil.copyfile(ROOT / filename, package / filename)
     (package / 'requirements.lock').write_text('\n'.join('{}=={}'.format(k, v[0]) for k, v in sorted(selected.items())) + '\n')
     (package / 'wheel-sha256.json').write_text(json.dumps({p.name: hashlib.sha256(p.read_bytes()).hexdigest() for _, p in selected.values()}, indent=2))
@@ -93,7 +93,7 @@ def Build(version):
             if path.is_file():
                 info = zipfile.ZipInfo.from_file(path, str(Path(package.name) / path.relative_to(package)))
                 info.create_system = 3
-                info.external_attr = (0o100755 if path.name == 'ipdb.sh' else 0o100644) << 16
+                info.external_attr = (0o100755 if path.name in ('ipdb.sh', 'ipdbVim.sh') else 0o100644) << 16
                 z.writestr(info, path.read_bytes(), compress_type=zipfile.ZIP_DEFLATED)
     print('BUILT', archive, flush=True)
 
