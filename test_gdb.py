@@ -17,15 +17,51 @@ class CommandTests(unittest.TestCase):
     def test_translation(self):
         cases = {'bt': 'backtrace', 'bt 2': 'backtrace 2', 'finish': 'return',
                  'break sample.py:10 if x == 3': 'break sample.py:10, x == 3',
-                 'b 10 if name == "a if b"': 'b 10, name == "a if b"',
+                 'b 10 if name == "a if b"': 'break 10, name == "a if b"',
                  'delete checkpoint 2': 'delete_checkpoint 2',
                  'disp values[0]': 'display values[0]',
                  'delete display 1 2': 'undisplay 1 2',
                  'disable display 2': 'disable_display 2',
                  'enable display': 'enable_display',
+                 'd 1': 'clear 1', 'del 2': 'clear 2',
+                 'dis disp 1': 'disable_display 1',
+                 'en disp 1': 'enable_display 1',
+                 'i disp': 'info display', 'i b': 'info breakpoints',
+                 'i check': 'info checkpoints',
+                 'del check 2': 'delete_checkpoint 2',
+                 'd disp 1': 'undisplay 1', 'und 1': 'undisplay 1',
+                 'cond 1 x > 0': 'condition 1 x > 0',
+                 'check': 'checkpoint', 'res 1': 'restart 1',
+                 'set v x = 3': 'set variable x = 3',
+                 'dis b 2': 'disable 2',
+                 'disp\tvalue': 'display value',
                  'delete 4': 'clear 4', 'r': 'run', '!print("if")': '!print("if")'}
         for command, expected in cases.items():
             self.assertEqual(Translate(command), expected)
+
+    def test_ambiguous_prefix_does_not_repeat_command(self):
+        for text in ('re', 'co', 'down'):
+            with self.assertRaises(ValueError):
+                Translate(text)
+        output = io.StringIO()
+        debugger = Pdb(stdin=io.StringIO(), stdout=output)
+        debugger.lastcmd = 'continue'
+        command = debugger.precmd('re')
+        self.assertEqual(command, '_portable_noop')
+        self.assertIsNone(debugger.onecmd(command))
+        self.assertIn('restart, return', output.getvalue())
+        self.assertEqual(Translate('!down = 3'), '!down = 3')
+
+    def test_abbreviated_display_management(self):
+        debugger = Pdb(stdin=io.StringIO(), stdout=io.StringIO())
+        debugger.curframe = sys._getframe()
+        for command in ('disp 3', 'dis disp 1'):
+            debugger.onecmd(debugger.precmd(command))
+        self.assertFalse(debugger._portable_displays[1]['enabled'])
+        debugger.onecmd(debugger.precmd('en disp 1'))
+        self.assertTrue(debugger._portable_displays[1]['enabled'])
+        debugger.onecmd(debugger.precmd('d disp 1'))
+        self.assertEqual(debugger._portable_displays, {})
 
     def test_display_updates_and_recovers(self):
         with tempfile.TemporaryDirectory() as directory:

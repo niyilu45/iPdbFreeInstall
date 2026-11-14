@@ -2,30 +2,80 @@
 import re
 
 
-def Translate(line):
+COMMANDS = (
+    'backtrace', 'break', 'checkpoint', 'clear', 'commands', 'condition',
+    'continue', 'debug', 'delete', 'disable', 'display', 'enable', 'exit',
+    'finish', 'frame', 'help', 'ignore', 'info', 'interact', 'jump', 'list',
+    'next', 'print', 'pudb', 'quit', 'restart', 'return', 'run', 'set',
+    'source', 'step', 'tbreak', 'undisplay', 'until', 'up', 'where', 'whatis',
+)
+ALIASES = {
+    'bt': 'backtrace', 'b': 'break', 'c': 'continue', 'cont': 'continue',
+    'd': 'delete', 'dis': 'disable', 'disp': 'display', 'f': 'frame',
+    'fin': 'finish', 'h': 'help', 'i': 'info', 'j': 'jump', 'l': 'list',
+    'n': 'next', 'p': 'print', 'q': 'quit', 'r': 'run', 's': 'step',
+    'u': 'up', 'unt': 'until', 'w': 'where',
+}
+
+
+def Resolve(word, choices, aliases=None):
+    if aliases and word in aliases:
+        return aliases[word]
+    if word in choices:
+        return word
+    matches = sorted(value for value in choices if value.startswith(word))
+    if len(matches) > 1:
+        raise ValueError('Ambiguous command {!r}: {}'.format(word, ', '.join(matches)))
+    return matches[0] if matches else word
+
+
+def SplitArgument(text):
+    parts = text.split(None, 1)
+    return (parts[0], parts[1].strip() if len(parts) > 1 else '') if parts else ('', '')
+
+
+def Translate(line, native_commands=()):
     stripped = line.strip()
     if not stripped or stripped.startswith('!'):
         return line
-    command, _, argument = stripped.partition(' ')
-    argument = argument.strip()
-    aliases = {'bt': 'backtrace', 'finish': 'return',
-               'fin': 'return', 'print': 'p', 'cont': 'continue', 'r': 'run',
-               'f': 'frame', 'i': 'info', 'disp': 'display'}
-    command = aliases.get(command, command)
-    if command in ('break', 'b', 'tbreak'):
+    command, argument = SplitArgument(stripped)
+    if command == 'down':
+        raise ValueError('down is disabled; use frame N to select a stack frame')
+    if command in native_commands and command not in ALIASES:
+        resolved = command
+    else:
+        resolved = Resolve(command, COMMANDS, ALIASES)
+    command = resolved
+    if command in ('info', 'delete', 'enable', 'disable') and argument:
+        subcommand, remainder = SplitArgument(argument)
+        choices = ('breakpoints', 'locals', 'args', 'checkpoints', 'display') if command == 'info' else ('breakpoints', 'checkpoint', 'display')
+        if command in ('enable', 'disable'):
+            choices = ('breakpoints', 'display')
+        subcommand = Resolve(subcommand, choices, {'b': 'breakpoints', 'disp': 'display'})
+        argument = subcommand + (' ' + remainder if remainder else '')
+        if command in ('enable', 'disable') and subcommand == 'breakpoints':
+            argument = remainder
+        elif command in ('enable', 'disable') and subcommand == 'display':
+            command += '_display'
+            argument = remainder
+        elif command == 'delete':
+            if subcommand == 'checkpoint':
+                command, argument = 'delete_checkpoint', remainder
+            elif subcommand == 'display':
+                command, argument = 'undisplay', remainder
+            elif subcommand == 'breakpoints':
+                command, argument = 'clear', remainder
+    if command == 'delete':
+        command = 'clear'
+    if command == 'set' and argument:
+        subcommand, remainder = SplitArgument(argument)
+        subcommand = Resolve(subcommand, ('variable',), {'v': 'variable', 'var': 'variable'})
+        argument = subcommand + (' ' + remainder if remainder else '')
+    if command in ('break', 'tbreak'):
         parts = re.split(r'\s+if\s+', argument, maxsplit=1)
         if len(parts) == 2:
             argument = parts[0] + ', ' + parts[1]
-    if command == 'delete':
-        if argument.startswith('checkpoint '):
-            command, argument = 'delete_checkpoint', argument[len('checkpoint '):]
-        elif argument == 'display' or argument.startswith('display '):
-            command, argument = 'undisplay', argument[len('display'):].strip()
-        else:
-            command = 'clear'
-    if command in ('enable', 'disable') and (argument == 'display' or argument.startswith('display ')):
-        command += '_display'
-        argument = argument[len('display'):].strip()
+    command = {'finish': 'return', 'print': 'p'}.get(command, command)
     return command + (' ' + argument if argument else '')
 
 
@@ -111,8 +161,20 @@ def Install():
     def DisableDisplay(self, argument):
         ChangeDisplays(self, argument, 'disable')
 
+    native_commands = {name[3:] for name in dir(Pdb) if name.startswith('do_')}
+
+    def Noop(self, argument):
+        pass
+
+    def Down(self, argument):
+        self.error('down is disabled; use frame N to select a stack frame')
+
     def Precmd(self, line):
-        return original(self, Translate(line))
+        try:
+            return original(self, Translate(line, native_commands))
+        except ValueError as error:
+            self.error(str(error))
+            return '_portable_noop'
 
     def Info(self, argument):
         """info breakpoints|locals|args|checkpoints|display"""
@@ -223,6 +285,9 @@ def Install():
             self.error(str(error))
 
     Pdb.precmd = Precmd
+    Pdb.do__portable_noop = Noop
+    Pdb.do_down = Down
+    Pdb.do_d = Pdb.do_clear
     Pdb.print_stack_entry = StackEntry
     Pdb.do_display = Display
     Pdb.do_undisplay = Undisplay

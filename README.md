@@ -125,7 +125,7 @@ PuDB retains its own command/key interface.
 | bt / backtrace | List the stack, innermost frame numbered #0 |
 | bt 3 | Show the three innermost frames |
 | frame 1 / f 1 | Select frame #1; p and info locals use that frame |
-| up / down | Move through stack frames |
+| up / u | Move toward the caller; use frame N to select any frame |
 | print expression / p expression | Evaluate a Python expression |
 | next / n, step / s, continue / c | Execute or resume |
 | finish / fin | Run until the current function returns |
@@ -213,3 +213,36 @@ read-only expressions. GDB slash formats (display/x) are not implemented;
 use disp hex(value) instead. These commands apply to ipdb and --tui;
 PuDB continues to use its own variable display. Checkpoint restoration also
 restores the display configuration saved with that checkpoint.
+
+
+## Command abbreviations
+
+The GDB-compatible command set and its info/delete/enable/disable
+subcommands now accept unambiguous prefixes. Explicit aliases take priority.
+Native ipdb commands outside this set remain available by their exact names.
+
+| Input | Expanded command |
+| --- | --- |
+| d 1 / del 1 | delete breakpoint 1 |
+| d disp 1 | delete display 1 |
+| del check 2 | delete checkpoint 2 |
+| dis disp 1 | disable display 1 |
+| en disp 1 | enable display 1 |
+| und 1 | undisplay 1 |
+| i disp | info display |
+| i b | info breakpoints |
+| i check | info checkpoints |
+| cond 1 value > 3 | condition 1 value > 3 |
+| check | checkpoint |
+| res 1 | restart 1 |
+| set v count = 3 | set variable count = 3 |
+
+The down command is disabled. d now means delete, not down. Use frame 0,
+frame 1, etc. for direct frame selection. Existing bt/f/i/b/n/s/c/p/q/r,
+fin, disp, and u aliases remain supported.
+
+Ambiguous prefixes are rejected with a candidate list: re matches restart
+and return, for example. They never silently choose a command or repeat the
+previous one. dis is an explicit alias for disable; disp selects display.
+Prefix expansion only affects command words, not Python expression text.
+Use ! to explicitly execute Python when a variable name overlaps a command.
