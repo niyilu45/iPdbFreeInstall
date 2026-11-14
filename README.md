@@ -345,3 +345,27 @@ flag was set. This avoids prompt-toolkit repainting the split terminal.
 Navigation, clipping, and key decoding have local regression coverage.
 The Linux PTY test also exercises both backspace encodings, but still needs
 execution on a native Linux test environment.
+
+## Tab completion
+
+The readline input used by the Linux shortcut/split launcher now completes:
+
+- Command names and aliases: chec<Tab> -> checkpoint, disp<Tab> -> display.
+- GDB subcommands: i dis<Tab> -> i display, dis disp<Tab> -> dis display.
+- Current-frame variables: p sample_c<Tab> -> p sample_count.
+- Object attributes: disp sample_values.ap<Tab> -> disp sample_values.append.
+- Expressions in condition, display, print, set-variable, and break-if commands.
+
+Press Tab to extend a unique match or display ambiguous candidates. Candidate
+names use the selected frame, so frame changes affect variable completion.
+Existing pdb filename completion is retained for break/source where available.
+Attribute traversal does not evaluate properties; custom __dir__ methods may
+still be called to enumerate attribute names. Internal adapter commands and
+the disabled down command are excluded from suggestions.
+
+Tab is forwarded to readline even while arrow keys are browsing source.
+PuDB retains its own completion behavior. --plain may use IPython's native
+prompt-toolkit completion instead of this readline adapter.
+
+Local completion tests pass. A Tab-completed variable command was also added
+to the Linux PTY test, which still requires native Linux execution.

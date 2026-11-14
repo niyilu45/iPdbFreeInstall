@@ -301,3 +301,5 @@ def Install():
     Pdb.do_checkpoint = Checkpoint
     Pdb.do_restart = Restart
     Pdb.do_delete_checkpoint = DeleteCheckpoint
+    from completion import InstallCompletion
+    InstallCompletion(Pdb)

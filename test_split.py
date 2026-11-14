@@ -23,6 +23,7 @@ class SplitTests(unittest.TestCase):
         self.assertEqual(keys.Feed(b'\x1bOB\x1b[C\x1b[D', True), (b'', ['down', 'right', 'left']))
         self.assertEqual(keys.Feed(b'\x1b[A', False), (b'\x1b[A', []))
         self.assertEqual(keys.Feed(b'p valuX\x08e\x7f', True), (b'p valuX\x7fe\x7f', []))
+        self.assertEqual(keys.Feed(b'\t', True), (b'\t', []))
         self.assertEqual(keys.Feed(b'\x1b[3~', True), (b'\x1b[3~', []))
         keys.Feed(b'\x1b', True)
         keys.started -= 1
@@ -219,6 +220,9 @@ class SplitTests(unittest.TestCase):
                 ReadUntil(b'41')
                 output.clear()
                 os.write(master, b'p valuX\x08e\n')
+                ReadUntil(b'41')
+                output.clear()
+                os.write(master, b'p val\t\n')
                 ReadUntil(b'41')
                 os.write(master, b'\x18a')
                 time.sleep(0.2)
