@@ -8,6 +8,7 @@ def Activate():
         raise RuntimeError('Supported Python versions: 3.6, 3.7, 3.9, 3.10')
     from bundle_loader import Locate
     base = Path(__file__).resolve().parent
+    bundled = True
     try:
         vendor = str(Locate(base, sys.platform, sys.version_info[:2]))
     except RuntimeError:
@@ -16,11 +17,14 @@ def Activate():
         installed = importlib.util.find_spec('ipdb')
         if installed is None or not installed.origin or any((base / 'vendor').glob('*-py*')) or (base / 'dist' / ('ipdb-{}-py{}{}.zip'.format(sys.platform, *sys.version_info[:2]))).exists():
             raise
-        return str(Path(installed.origin).parent.parent)
-    if vendor in sys.path:
-        sys.path.remove(vendor)
-    # ipdb.main replaces sys.path[0] with the debuggee's directory.
-    sys.path.insert(1, vendor)
+        vendor = str(Path(installed.origin).parent.parent)
+        bundled = False
+    # ipdb.main replaces sys.path[0] with the debuggee's directory. Keep
+    # both dependencies and lazily imported launcher modules after that slot.
+    launcher = str(base)
+    retained = [vendor, launcher] if bundled and vendor != launcher else [launcher]
+    sys.path[1:] = [entry for entry in sys.path[1:] if entry not in retained]
+    sys.path[1:1] = retained
     return vendor
 
 

@@ -4,6 +4,8 @@ import tempfile
 import unittest
 import zipfile
 import sys
+import os
+import subprocess
 from unittest import mock
 from bundle_loader import Locate
 
@@ -20,6 +22,37 @@ class LoaderTests(unittest.TestCase):
                 spec = importlib.util.find_spec('portable_loader_probe')
                 self.assertIsNotNone(spec)
                 self.assertEqual(Path(spec.origin).parent, Path(directory))
+
+    def test_launcher_modules_survive_debuggee_path_replacement(self):
+        import portable_ipdb
+        from importlib.machinery import PathFinder
+        base = Path(portable_ipdb.__file__).resolve().parent
+        with tempfile.TemporaryDirectory() as directory:
+            with mock.patch('bundle_loader.Locate', return_value=Path(directory)), mock.patch.object(sys, 'path', [str(base)]):
+                portable_ipdb.Activate()
+                portable_ipdb.Activate()
+                self.assertEqual(sys.path[1:].count(str(base)), 1)
+                sys.path[0] = '/debuggee/directory'
+                for module in ('source_theme', 'completion', 'checkpoints', 'terminal_keys', 'output_history'):
+                    spec = PathFinder.find_spec(module, sys.path)
+                    self.assertIsNotNone(spec, module)
+                    self.assertEqual(Path(spec.origin).parent, base)
+
+    def test_plain_startup_outside_launcher_directory(self):
+        launcher = Path(__file__).resolve().parent / 'portable_ipdb.py'
+        with tempfile.TemporaryDirectory() as directory:
+            script = Path(directory) / 'sample.py'
+            script.write_text('value = 41\nprint("RESULT", value + 1)\n')
+            result = subprocess.run(
+                [sys.executable, '-B', str(launcher), '--plain', str(script)],
+                input="n\np value\np __import__('source_theme').__name__\nc\nq\n",
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                universal_newlines=True, cwd=directory,
+                env=dict(os.environ, IPY_TEST_SIMPLE_PROMPT='1', IPYTHONDIR=directory), timeout=30)
+            self.assertEqual(result.returncode, 0, result.stdout)
+            self.assertIn("'source_theme'", result.stdout)
+            self.assertIn('RESULT 42', result.stdout)
+            self.assertNotIn('ModuleNotFoundError', result.stdout)
 
     def MakeArchive(self, base, bad=False):
         (base / 'dist').mkdir()
