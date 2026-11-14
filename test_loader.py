@@ -33,7 +33,7 @@ class LoaderTests(unittest.TestCase):
                 portable_ipdb.Activate()
                 self.assertEqual(sys.path[1:].count(str(base)), 1)
                 sys.path[0] = '/debuggee/directory'
-                for module in ('source_browser', 'source_theme', 'completion', 'checkpoints', 'terminal_keys', 'output_history'):
+                for module in ('source_panes', 'source_browser', 'source_theme', 'completion', 'checkpoints', 'terminal_keys', 'output_history'):
                     spec = PathFinder.find_spec(module, sys.path)
                     self.assertIsNotNone(spec, module)
                     self.assertEqual(Path(spec.origin).parent, base)

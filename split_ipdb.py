@@ -272,8 +272,10 @@ def Run(arguments, start_split=True):
     paused = False
     source_focused = False
     snapshot = {}
-    from source_browser import SourceBrowser
-    browser = SourceBrowser()
+    from source_panes import SourcePanes
+    panes = SourcePanes()
+    snapshot = panes.views[0]
+    browser = panes.browsers[0]
     event_buffer = b''
     keys = KeyFilter()
     from terminal_keys import SourceKeys, PaneKeys
@@ -291,14 +293,21 @@ def Run(arguments, start_split=True):
         while data:
             data = data[os.write(sys.stdout.fileno(), data):]
 
+    def Current():
+        y, x, h, w = panes.Layout(max(1, source_height), dimensions[1])[panes.active]
+        return panes.views[panes.active], panes.browsers[panes.active], max(1, h - 2), w
+
     def DrawSource():
         if not source_height:
             return
-        columns = dimensions[1]
         Write('\x1b7')
-        view = dict(snapshot, _source_focus=source_focused)
-        for row, text in enumerate(SourceBox(view, source_height, columns, color=True), 1):
-            Write('\x1b[{};1H\x1b[2K'.format(row) + text)
+        for row in range(1, source_height + 1):
+            Write('\x1b[{};1H\x1b[2K'.format(row))
+        for key, (y, x, h, w) in panes.Layout(source_height, dimensions[1]).items():
+            view = dict(panes.views[key], _source_focus=source_focused and key == panes.active)
+            view['file'] = ('[MAIN] ' if key == 0 else '[VIEW {}] '.format(key)) + view.get('file', '')
+            for row, text in enumerate(SourceBox(view, h, w, color=True)):
+                Write('\x1b[{};{}H'.format(y + row + 1, x + 1) + text)
         Write('\x1b8')
 
     def Resize(force=False):
@@ -329,6 +338,7 @@ def Run(arguments, start_split=True):
         Write(banner)
         while True:
             Resize()
+            snapshot, browser, pane_height, pane_width = Current()
             expired = pane_keys.Flush() + navigation.Flush()
             if expired:
                 if source_focused:
@@ -354,9 +364,8 @@ def Run(arguments, start_split=True):
                     if 'ready' in message:
                         paused = message['ready']
                         continue
-                    snapshot = message
-                    browser.Cancel(snapshot)
-                    browser.Clamp(snapshot, max(1, source_height - 2), dimensions[1])
+                    panes.Update(message, max(1, source_height), dimensions[1])
+                    snapshot, browser, pane_height, pane_width = Current()
                     DrawSource()
             if master in ready:
                 try:
@@ -381,30 +390,39 @@ def Run(arguments, start_split=True):
                 if keys.focus_toggles % 2 and source_height and paused:
                     source_focused = not source_focused
                     browser.Cancel(snapshot)
-                    browser.Clamp(snapshot, max(1, source_height - 2), dimensions[1])
+                    browser.Clamp(snapshot, pane_height, pane_width)
                     DrawSource()
                 forwarded = bytearray()
                 redraw = False
                 for kind, value in pane_keys.Feed(data, bool(source_height), source_height):
                     if kind == 'focus':
-                        if value in 'kj':
-                            source_focused = value == 'k'
+                        browser.Cancel(snapshot)
+                        source_focused = panes.Focus(value, source_focused, source_height, dimensions[1])
+                        snapshot, browser, pane_height, pane_width = Current()
                         navigation.prefix = b''
                         browser.Cancel(snapshot)
-                        browser.Clamp(snapshot, max(1, source_height - 2), dimensions[1])
+                        browser.Clamp(snapshot, pane_height, pane_width)
                         redraw = True
                     elif kind == 'scroll':
-                        for unused in range(3):
-                            ScrollSource(snapshot, value, max(1, source_height - 2), dimensions[1])
+                        direction, column, row = value
+                        for key, (y, x, h, w) in panes.Layout(source_height, dimensions[1]).items():
+                            if x <= column - 1 < x + w and y <= row - 1 < y + h:
+                                for unused in range(3):
+                                    ScrollSource(panes.views[key], direction, max(1, h - 2), w)
+                                break
                         redraw = True
                     else:
                         if source_height and source_focused:
-                            value = browser.Feed(value, snapshot, max(1, source_height - 2), dimensions[1])
+                            value = browser.Feed(value, snapshot, pane_height, pane_width)
+                            if '_command' in snapshot:
+                                panes.Command(snapshot.pop('_command'), source_height, dimensions[1])
+                                snapshot, browser, pane_height, pane_width = Current()
+                                browser.Clamp(snapshot, pane_height, pane_width)
                             redraw = True
                         typed, actions = navigation.Feed(value, bool(source_height and source_focused))
                         forwarded.extend(typed)
                         for action in actions:
-                            browser.Move(snapshot, action, max(1, source_height - 2), dimensions[1])
+                            browser.Move(snapshot, action, pane_height, pane_width)
                         redraw = redraw or bool(actions)
                 data = bytes(forwarded)
                 if redraw:

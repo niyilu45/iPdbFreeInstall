@@ -99,7 +99,7 @@ class PaneKeys:
                             button, column, row = map(int, match.groups()[:3])
                             if 1 <= row <= source_height and button & 64 and match.group(4) == b'M':
                                 if button & 3 in (0, 1):
-                                    events.append(('scroll', 'down' if button & 1 else 'up'))
+                                    events.append(('scroll', ('down' if button & 1 else 'up', column, row)))
                         self.pending = b''
                     elif len(self.pending) > 64 or value not in b'0123456789;':
                         self.pending = b''

@@ -81,11 +81,16 @@ class SourceBrowser:
     def Feed(self, data, view, height, width):
         output = bytearray()
         for value in data:
-            if self.mode in ('/', '?'):
+            if self.mode in ('/', '?', ':'):
                 if value == 27:
                     self.Cancel(view)
                 elif value in (10, 13):
                     query = self.text.decode('utf-8', 'replace')
+                    if self.mode == ':':
+                        view['_command'] = query
+                        self.mode, self.text = '', b''
+                        view['_status'] = ''
+                        continue
                     if query:
                         self.query = query
                     self.direction = 1 if self.mode == '/' else -1
@@ -116,7 +121,7 @@ class SourceBrowser:
                 else:
                     view['_status'] = 'Mark name must be a-z'
                 continue
-            if value in (ord('/'), ord('?'), ord('m'), ord("'"), ord('`')):
+            if value in (ord('/'), ord('?'), ord(':'), ord('m'), ord("'"), ord('`')):
                 self.mode, self.text = chr(value), b''
                 view['_status'] = self.mode
             elif value in (ord('n'), ord('N')):

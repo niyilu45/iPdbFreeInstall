@@ -52,10 +52,10 @@ class SplitTests(unittest.TestCase):
         events = []
         for value in b'\x17k\x1b[<64;10;3M\x17jnext':
             events.extend(keys.Feed(bytes([value]), True, 15))
-        self.assertEqual(events[:3], [('focus', 'k'), ('scroll', 'up'), ('focus', 'j')])
+        self.assertEqual(events[:3], [('focus', 'k'), ('scroll', ('up', 10, 3)), ('focus', 'j')])
         self.assertEqual(b''.join(value for kind, value in events[3:]), b'next')
         self.assertEqual(keys.Feed(b'\x1b[<65;10;20M', True, 15), [])
-        self.assertEqual(keys.Feed(b'\x1b[<65;10;4M', True, 15), [('scroll', 'down')])
+        self.assertEqual(keys.Feed(b'\x1b[<65;10;4M', True, 15), [('scroll', ('down', 10, 4))])
         self.assertEqual(keys.Feed(b'\x1b[A', True, 15), [('input', b'\x1b[A')])
         self.assertEqual(b''.join(value for kind, value in keys.Feed(b'\x17h', False, 0)), b'\x17h')
 
@@ -251,7 +251,7 @@ class SplitTests(unittest.TestCase):
                 os.write(master, b'n\n')
                 ReadUntil(b'ipdb>')
                 output.clear()
-                os.write(master, b'\x17k/value\nmaggnN`a\x1b[<65;10;3M\x17jp valuX\x7fe\n')
+                os.write(master, b'\x17k:vsplit\n:split\n:q\n\x17l:q\n/value\nmaggnN`a\x1b[<65;10;3M\x17jp valuX\x7fe\n')
                 ReadUntil(b'41')
                 output.clear()
                 os.write(master, b'p valuX\x08e\n')

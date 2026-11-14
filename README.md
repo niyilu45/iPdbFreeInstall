@@ -471,3 +471,16 @@ ma saves mark a at the browsing cursor (a-z supported). 'a jumps to its line;
 session across debugger stops; they are not saved on disk and do not change
 program execution. A new debugger stop places the browsing cursor at the
 execution line. zz returns the browser to that line.
+
+
+### Multiple source windows
+
+With source focus, type :split (or :sp) and Enter for a top/bottom split,
+or :vsplit (or :vs) for a left/right split. The new window receives a copy
+of the current source view and has an independent cursor, search and viewport.
+Ctrl-W h/j/k/l selects the adjacent source window or the command area.
+:q (or :quit) closes the focused extra source window and returns focus to MAIN.
+The top-left MAIN window cannot be closed. Only MAIN follows debugger stops
+and frame changes; other windows keep their displayed file and browsing state.
+Mouse-wheel scrolling targets the window under the pointer without changing
+keyboard focus. Splitting is refused when the current window is too small.
