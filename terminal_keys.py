@@ -59,3 +59,14 @@ def ConfigureInput():
     # This module can have been imported before the child environment changed.
     import IPython.terminal.debugger
     IPython.terminal.debugger._use_simple_prompt = True
+    # IPython 7.16 has no _use_simple_prompt branch. Select its readline-
+    # based core debugger explicitly, preserving ipdb's shell initialization.
+    from IPython.core.debugger import Pdb
+    from ipdb import __main__ as ipdb_main
+    original = ipdb_main._get_debugger_cls
+
+    def SimpleDebuggerClass():
+        original()
+        return Pdb
+
+    ipdb_main._get_debugger_cls = SimpleDebuggerClass
