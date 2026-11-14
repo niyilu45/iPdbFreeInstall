@@ -515,3 +515,28 @@ edits before confirming. Detaching ends this temporary session and its processes
 The built-in Ctrl-X A/S layout and PuDB shortcuts are not active in this mode.
 Local validation includes real Windows Vim configuration/plugin loading and
 source synchronization; a complete Linux tmux interactive run is still pending.
+
+
+### Windows system Vim launcher
+
+From cmd: `ipdbVim.cmd my.py`. From PowerShell: `.\ipdbVim.cmd my.py`.
+This always selects system Vim mode, and respects IPDB_PYTHON like ipdb.cmd.
+Native vim.exe must be on PATH; no WSL or tmux is needed on Windows. The selected
+Python must have the Windows debugger dependencies (an existing ipdb installation
+or a matching vendor/win32-pyXY prepared using `python prepare.py`). Linux vendor
+packages are not Windows dependency bundles.
+
+If wt.exe is on PATH, a new Windows Terminal window contains upper Vim and lower
+ipdb panes. Use your Windows Terminal pane-switch shortcuts between them, and
+Vim's own Ctrl-W keys within its source windows. Without Windows Terminal, Vim
+opens in a separate console and ipdb stays in the invoking console; use Alt-Tab.
+Vim loads the normal Windows user configuration (_vimrc/vimrc) and plugins.
+After debugging, Enter closes an unmodified Vim session; unsaved buffers are
+kept open. If Vim fails to initialize, inspect its visible startup errors. A
+blocking plugin or vimrc command must finish before the debugger can start.
+
+Validation includes the actual Windows .cmd entry, native console Vim/ipdb
+execution with an isolated Vim configuration, and separate real Vim plugin and
+source-sync tests. The Windows Terminal pane path is not locally end-to-end
+tested because wt.exe is unavailable on the test machine. Opt in to visible
+console integration tests by setting IPDB_TEST_WINDOWS_CONSOLE=1.

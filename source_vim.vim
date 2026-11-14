@@ -7,6 +7,17 @@ let s:last = ''
 highlight default IpdbExecution ctermbg=DarkGrey guibg=#444444
 sign define IpdbExecution text=>> texthl=Search linehl=IpdbExecution
 function! IpdbSourcePoll(timer) abort
+  if !empty($IPDB_VIM_CLOSE) && filereadable($IPDB_VIM_CLOSE)
+    call timer_stop(g:ipdb_source_timer)
+    if !empty(filter(getbufinfo(), 'v:val.changed'))
+      call writefile(['kept'], $IPDB_VIM_CLOSED)
+      echom 'ipdb finished; unsaved buffers kept open. Save or close Vim manually.'
+      return
+    endif
+    call writefile(['closing'], $IPDB_VIM_CLOSED)
+    qa
+    return
+  endif
   if !filereadable($IPDB_VIM_STATE)
     return
   endif

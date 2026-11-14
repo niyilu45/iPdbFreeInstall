@@ -52,6 +52,9 @@ def Worker(config_path):
 
 
 def Run(arguments):
+    if sys.platform == 'win32':
+        from windows_vim import Run as RunWindows
+        return RunWindows(arguments)
     if not sys.platform.startswith('linux') or not sys.stdin.isatty() or not sys.stdout.isatty():
         raise RuntimeError('--source-vim requires an interactive Linux terminal')
     vim, tmux = shutil.which('vim'), shutil.which('tmux')
