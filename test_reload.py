@@ -11,6 +11,21 @@ from reload_code import Relocate
 
 
 class ReloadTests(unittest.TestCase):
+    def test_exit_preserves_locals_and_allows_restart(self):
+        with tempfile.TemporaryDirectory() as directory:
+            script = Path(directory) / 'exit_sample.py'
+            script.write_text('import sys\ndef work():\n    saved = 42\n    sys.exit(7)\nwork()\n')
+            launcher = Path(__file__).with_name('portable_ipdb.py').resolve()
+            result = subprocess.run([sys.executable, '-B', str(launcher), '--plain', str(script)],
+                input='c\np saved\nbt\nr\nc\np saved\nq\n', stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT, universal_newlines=True, timeout=30,
+                env=dict(os.environ, IPY_TEST_SIMPLE_PROMPT='1', IPYTHONDIR=directory))
+            self.assertEqual(result.returncode, 0, result.stdout)
+            self.assertEqual(result.stdout.count('Program requested exit: 7'), 2, result.stdout)
+            self.assertGreaterEqual(len(re.findall(r'(?m).*42\s*$', result.stdout)), 2, result.stdout)
+            self.assertIn('sys.exit(7)', result.stdout)
+
+
     def test_restart_from_post_mortem_keeps_session(self):
         with tempfile.TemporaryDirectory() as directory:
             script = Path(directory) / 'broken.py'

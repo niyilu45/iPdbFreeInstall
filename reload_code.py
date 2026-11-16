@@ -208,6 +208,14 @@ def Install():
             self._portable_execution_active = True
             try:
                 return original(self, filename)
+            except SystemExit as error:
+                # Keep the traceback frames alive while inspecting program exit.
+                traceback = error.__traceback__
+                self.message('Program requested exit: {!r}. Inspect the saved stack, r to rerun, or q to quit.'.format(error.code))
+                self.interaction(None, traceback)
+                if getattr(self, '_user_requested_quit', False):
+                    return
+                raise
             finally:
                 self._portable_execution_active = False
         return Execute
