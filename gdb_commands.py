@@ -187,6 +187,9 @@ def Install():
                 self.message('{}: [{}] {}'.format(number, 'enabled' if entry['enabled'] else 'disabled', entry['expression']))
             return
         if argument in ('break', 'breakpoints', 'b'):
+            if not self.get_all_breaks():
+                self.message('No breakpoints')
+                return
             return self.do_break('')
         if argument == 'args':
             return self.do_args('')
