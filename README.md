@@ -657,8 +657,9 @@ diagnostics. This lets a report include the actual rendering state without a
 screenshot; the file contains the visible source code.
 
 If files cannot be shared and focusing Vim clears the defect, stay at the ipdb
-prompt and run `viewcheck start`. Switch to Vim and back without typing, moving
-the cursor or resizing, then run `viewcheck end`. Only report the short result:
+prompt and run `vc`. Switch to Vim and back without typing, moving
+the cursor or resizing, then run `vc` again. Use `vc s` to replace the baseline
+or `vc e` to compare explicitly. Only report the short result:
 R1 means captured source text changed; R2 means only terminal styles changed;
 R3 means both stayed identical (investigate the tmux client/outer terminal);
 R4 means the comparison was invalidated by a pane/size change; R0 is a capture

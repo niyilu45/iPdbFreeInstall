@@ -47,10 +47,13 @@ def InstallHook(path):
     original_where = Pdb.do_where
 
     def ViewCheck(self, argument):
-        """viewcheck start|end: compare source cells across a manual focus switch."""
+        """vc: capture first, compare on the next call after a focus switch."""
         action = argument.strip()
+        action = {'s': 'start', 'e': 'end'}.get(action, action)
+        if not action:
+            action = 'end' if getattr(self, '_portable_view_before', None) is not None else 'start'
         if action not in ('start', 'end'):
-            self.message('Usage: viewcheck start; switch to Vim and back without moving; viewcheck end')
+            self.message('Usage: vc; switch to Vim and back without moving; vc again. Explicit: vc s / vc e.')
             return
         try:
             snapshot = CaptureView()
@@ -59,11 +62,11 @@ def InstallHook(path):
             return
         if action == 'start':
             self._portable_view_before = snapshot
-            self.message('S0: Captured. Switch to Vim and back without typing or resizing, then run viewcheck end.')
+            self.message('S0: Captured. Switch to Vim and back without typing or resizing, then run vc again.')
             return
         before = getattr(self, '_portable_view_before', None)
         if before is None:
-            self.error('R0: Run viewcheck start while the defect is visible first.')
+            self.error('R0: Run vc first while the defect is visible.')
             return
         code = ViewCode(before, snapshot)
         meanings = {'R1': 'tmux source text changed', 'R2': 'text unchanged; terminal styles changed',
@@ -96,6 +99,7 @@ def InstallHook(path):
     Pdb.do_where = Where
     Pdb.do_w = Where
     Pdb.do_viewcheck = ViewCheck
+    Pdb.do_vc = ViewCheck
 
 
 def Shell(arguments):
