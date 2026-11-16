@@ -41,10 +41,77 @@ def CaptureView():
     return {'pane': pane, 'size': size, 'text': text, 'style': style}
 
 
+def ProbeCode(snapshot, report):
+    if snapshot['size'] != '{}x{}'.format(report['columns'], report['lines']):
+        return 'V3 vim={}x{} tmux={}'.format(report['columns'], report['lines'], snapshot['size'])
+    if not report['mode'].startswith('n'):
+        return 'V4 mode=' + report['mode']
+    checked, different = 0, []
+    for index, (actual, expected) in enumerate(zip(snapshot['text'], report['screen'][:-2])):
+        # Avoid guessing character-cell widths for wide/combining characters.
+        if any(ord(character) > 126 for character in actual + expected):
+            continue
+        checked += 1
+        if actual.rstrip() != expected.rstrip():
+            different.append(index + 1)
+    if not checked:
+        return 'V4 no-ascii-rows'
+    if different:
+        return 'V2 rows={} first={}'.format(len(different), different[0])
+    return 'V1 rows={}'.format(checked)
+
+
+def ProbeView(path):
+    before = CaptureView()
+    request = Path(str(path) + '.probe-request')
+    response = Path(str(path) + '.probe-response')
+    token = '{}-{}'.format(os.getpid(), time.time())
+    temporary = request.with_suffix('.tmp')
+    temporary.write_text(json.dumps({'token': token}))
+    os.replace(str(temporary), str(request))
+    deadline = time.monotonic() + 3
+    while time.monotonic() < deadline:
+        try:
+            report = json.loads(response.read_text())
+            if report.get('token') == token:
+                after = CaptureView()
+                if before['pane'] != after['pane'] or before['size'] != after['size'] or before['text'] != after['text']:
+                    return 'V5 changing; run vd again when idle'
+                return ProbeCode(after, report)
+        except (OSError, ValueError):
+            pass
+        time.sleep(0.05)
+    return 'V0 timeout; restart with the updated Vim bridge'
+
+
+def RefreshClient():
+    command = [os.environ['IPDB_TMUX_BIN'], '-L', os.environ['IPDB_TMUX_SOCKET']]
+    session = subprocess.check_output(command + ['display-message', '-p', '-t', os.environ['TMUX_PANE'], '#{session_id}'], universal_newlines=True).strip()
+    clients = subprocess.check_output(command + ['list-clients', '-t', session, '-F', '#{client_name}'], universal_newlines=True).splitlines()
+    for client in clients:
+        subprocess.check_call(command + ['refresh-client', '-t', client], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+    return len(clients)
+
+
 def InstallHook(path):
     from IPython.core.debugger import Pdb
     original = Pdb.print_stack_entry
     original_where = Pdb.do_where
+
+    def ViewDiagnostic(self, argument):
+        """vd: compare Vim's cached cells with tmux without changing focus."""
+        try:
+            self.message(ProbeView(path))
+        except (KeyError, OSError, subprocess.CalledProcessError, StopIteration) as error:
+            self.error('V0: {}'.format(type(error).__name__))
+
+    def ViewRefresh(self, argument):
+        """vr: ask tmux to repaint attached clients, without changing Vim state."""
+        try:
+            count = RefreshClient()
+            self.message('F1: Repainted {} client(s). Did the residue disappear?'.format(count))
+        except (KeyError, OSError, subprocess.CalledProcessError) as error:
+            self.error('F0: {}'.format(type(error).__name__))
 
     def ViewCheck(self, argument):
         """vc: capture first, compare on the next call after a focus switch."""
@@ -100,6 +167,8 @@ def InstallHook(path):
     Pdb.do_w = Where
     Pdb.do_viewcheck = ViewCheck
     Pdb.do_vc = ViewCheck
+    Pdb.do_vd = ViewDiagnostic
+    Pdb.do_vr = ViewRefresh
 
 
 def Shell(arguments):

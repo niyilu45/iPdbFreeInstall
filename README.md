@@ -666,6 +666,19 @@ R4 means the comparison was invalidated by a pane/size change; R0 is a capture
 error. These codes locate a rendering layer, not a confirmed root cause. The
 snapshots stay in debugger memory and exclude the bottom two status/command rows.
 
+For a comparison without switching focus, run `vd` once while the defect is
+visible. It requests Vim's cached cells through the existing local session
+channel and compares stable tmux output: V1 means matching ASCII rows, V2 means
+different text cells, V3 means a size mismatch, V4 means an unsuitable Vim mode
+or no comparable ASCII rows, V5 means the screen changed during sampling, and
+V0 means the probe was unavailable. Wide/combining-character rows are excluded
+to avoid false character-width diagnoses. No screen data is printed or uploaded.
+
+Run `vr` to ask tmux to repaint its attached clients without moving focus,
+changing Vim's viewport, or stepping the program. F1 confirms the request was
+sent; whether the visible residue disappears must be checked visually. This
+separates a client repaint from a Vim source refresh and is not an automatic fix.
+
 The source checkout includes `repro_source_render.py` for Linux. It generates
 long/short source rows and a cross-file call, drives the actual launcher, and
 retains each tmux screen plus a JSON result list. Use a new output directory:

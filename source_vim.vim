@@ -75,7 +75,38 @@ augroup PortableIpdbRedraw
     autocmd WinScrolled * call IpdbQueueRedraw()
   endif
 augroup END
+let s:probe_token = ''
+function! IpdbDiagnosticPoll() abort
+  let request = $IPDB_VIM_STATE . '.probe-request'
+  if !filereadable(request)
+    return
+  endif
+  try
+    let message = json_decode(join(readfile(request), "\n"))
+    if message.token ==# s:probe_token
+      return
+    endif
+    let cells = []
+    for row in range(1, &lines)
+      let text = ''
+      for column in range(1, &columns)
+        let character = screenchar(row, column)
+        let text .= character > 0 ? nr2char(character) : ' '
+      endfor
+      call add(cells, text)
+    endfor
+    let report = {'token': message.token, 'columns': &columns, 'lines': &lines,
+          \ 'mode': mode(1), 'screen': cells, 'view': winsaveview()}
+    let response = $IPDB_VIM_STATE . '.probe-response'
+    call writefile([json_encode(report)], response . '.tmp')
+    call rename(response . '.tmp', response)
+    let s:probe_token = message.token
+  catch
+    " Diagnostic failures must never interrupt the running debugger.
+  endtry
+endfunction
 function! IpdbSourcePoll(timer) abort
+  call IpdbDiagnosticPoll()
   " Do not erase Ex output, hit-enter prompts, completion menus or selections.
   " Leave source updates pending until Vim is back in Normal mode.
   if a:timer != 0 && mode(1) !~# '^n'

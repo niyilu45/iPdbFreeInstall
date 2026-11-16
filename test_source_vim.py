@@ -13,6 +13,15 @@ from source_vim import Publish, Shell
 
 
 class VimTests(unittest.TestCase):
+    def test_cached_screen_diagnostic_codes(self):
+        from source_vim import ProbeCode
+        snapshot = {'size': '10x3', 'text': ['code']}
+        report = {'columns': 10, 'lines': 3, 'mode': 'n', 'screen': ['code      ', '', '']}
+        self.assertTrue(ProbeCode(snapshot, report).startswith('V1'))
+        self.assertTrue(ProbeCode(dict(snapshot, text=['old code']), report).startswith('V2'))
+        self.assertTrue(ProbeCode(dict(snapshot, size='11x3'), report).startswith('V3'))
+        self.assertTrue(ProbeCode(snapshot, dict(report, mode='c')).startswith('V4'))
+
     def test_focus_diagnostic_codes(self):
         from source_vim import ViewCode
         before = {'pane': '%0', 'size': '234x34', 'text': ['code'], 'style': ['styled code']}
@@ -307,6 +316,12 @@ qa!
                 output.clear()
                 os.write(master, b'vc\n')
                 WaitFor(b'R3:')
+                output.clear()
+                os.write(master, b'vd\n')
+                WaitFor(b'V1 rows=')
+                output.clear()
+                os.write(master, b'vr\n')
+                WaitFor(b'F1:')
                 script.write_text('# saved edit\nvalue = 41\nprint("NEW_RESULT", value + 1)\n')
                 output.clear()
                 os.write(master, b'r\n')
