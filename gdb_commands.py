@@ -99,6 +99,38 @@ def Install():
         return
     Pdb._portable_gdb = True
     original_clear = Pdb.do_clear
+    original_checkline = Pdb.checkline
+
+    def CheckLine(self, filename, lineno):
+        import linecache
+        linecache.checkcache(filename)
+        lines = linecache.getlines(filename)
+        if 0 < lineno <= len(lines) and not lines[lineno - 1].strip():
+            import dis
+            import types
+            try:
+                code = compile(''.join(lines), filename, 'exec')
+            except (SyntaxError, ValueError) as error:
+                self.error('Cannot find an executable line: {}'.format(error))
+                return 0
+            pending = [code]
+            executable = set()
+            while pending:
+                current = pending.pop()
+                executable.update(line for _, line in dis.findlinestarts(current))
+                pending.extend(value for value in current.co_consts if isinstance(value, types.CodeType))
+            candidates = sorted(line for line in executable if line > lineno
+                                and line <= len(lines) and lines[line - 1].strip()
+                                and not lines[line - 1].lstrip().startswith('#'))
+            if not candidates:
+                self.error('No executable line below {}:{}'.format(filename, lineno))
+                return 0
+            target = candidates[0]
+            self.message('Breakpoint moved from line {} to {}'.format(lineno, target))
+            lineno = target
+        return original_checkline(self, filename, lineno)
+
+    Pdb.checkline = CheckLine
     original = Pdb.precmd
     original_restart = Pdb.do_restart
     original_stack_entry = Pdb.print_stack_entry

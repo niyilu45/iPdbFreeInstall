@@ -31,6 +31,26 @@ class CommandTests(unittest.TestCase):
             debugger.onecmd(debugger.precmd('d 1-5'))
             clear.assert_called_once_with('3')
 
+    def test_blank_breakpoint_moves_to_executable_line(self):
+        import bdb
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'blank.py'
+            path.write_text('value = 1\n\n# comment\n\nvalue = 2\n\n')
+            output = io.StringIO()
+            debugger = Pdb(stdin=io.StringIO(), stdout=output)
+            debugger.curframe = sys._getframe()
+            try:
+                debugger.onecmd(debugger.precmd('b {}:2 if value == 1'.format(path)))
+                entries = debugger.get_breaks(debugger.canonic(str(path)), 5)
+                self.assertEqual(len(entries), 1, output.getvalue())
+                self.assertEqual(entries[0].cond, 'value == 1')
+                debugger.onecmd(debugger.precmd('b {}:6'.format(path)))
+                self.assertIn('No executable line below', output.getvalue())
+                self.assertIn('moved from line 2 to 5', output.getvalue())
+            finally:
+                debugger.clear_all_breaks()
+                bdb.Breakpoint.bplist.clear()
+
     def test_translation(self):
         cases = {'bt': 'backtrace', 'bt 2': 'backtrace 2', 'finish': 'return',
                  'break sample.py:10 if x == 3': 'break sample.py:10, x == 3',
