@@ -79,11 +79,26 @@ def Translate(line, native_commands=()):
     return command + (' ' + argument if argument else '')
 
 
+def ParseIds(argument):
+    numbers = []
+    for token in argument.split():
+        match = re.fullmatch(r'(\d+)(?:-(\d+))?', token)
+        if not match:
+            raise ValueError('Invalid ID or range: ' + token)
+        first = int(match.group(1))
+        last = int(match.group(2) or first)
+        if first < 1 or last < first:
+            raise ValueError('Invalid ID range: ' + token)
+        numbers.extend(range(first, last + 1))
+    return list(dict.fromkeys(numbers))
+
+
 def Install():
     from IPython.core.debugger import Pdb
     if getattr(Pdb, '_portable_gdb', False):
         return
     Pdb._portable_gdb = True
+    original_clear = Pdb.do_clear
     original = Pdb.precmd
     original_restart = Pdb.do_restart
     original_stack_entry = Pdb.print_stack_entry
@@ -163,14 +178,18 @@ def Install():
     def ChangeDisplays(self, argument, action):
         entries = DisplayEntries(self)
         try:
-            numbers = list(dict.fromkeys(int(value) for value in argument.split())) if argument.strip() else list(entries)
+            numbers = ParseIds(argument) if argument.strip() else list(entries)
             unknown = [number for number in numbers if number not in entries]
             if unknown:
-                raise ValueError('Unknown display IDs: {}'.format(', '.join(map(str, unknown))))
+                self.error('Unknown display IDs: {}'.format(', '.join(map(str, unknown))))
+                if action != 'delete':
+                    return
         except ValueError as error:
             self.error(str(error))
             return
         for number in numbers:
+            if number not in entries:
+                continue
             if action == 'delete':
                 del entries[number]
             else:
@@ -316,17 +335,44 @@ def Install():
         except (ValueError, OSError) as error:
             self.error(str(error))
 
+    def DeleteIds(self, argument, entries, delete, label):
+        try:
+            numbers = ParseIds(argument)
+        except ValueError as error:
+            self.error(str(error))
+            return
+        if not numbers:
+            self.error('At least one ID is required')
+            return
+        missing = []
+        for number in numbers:
+            if number not in entries:
+                missing.append(number)
+                continue
+            try:
+                delete(number)
+            except (ValueError, OSError) as error:
+                self.error(str(error))
+        if missing:
+            self.error('Unknown {} IDs: {}'.format(label, ', '.join(map(str, missing))))
+
+    def Clear(self, argument):
+        if not argument.strip() or ':' in argument:
+            return original_clear(self, argument)
+        import bdb
+        entries = {entry.number for entry in bdb.Breakpoint.bpbynumber if entry}
+        return DeleteIds(self, argument, entries,
+                         lambda number: original_clear(self, str(number)), 'breakpoint')
+
     def DeleteCheckpoint(self, argument):
         from checkpoints import Manager
-        try:
-            Manager.Delete(int(argument))
-        except (ValueError, OSError) as error:
-            self.error(str(error))
+        DeleteIds(self, argument, Manager.entries, Manager.Delete, 'checkpoint')
 
     Pdb.precmd = Precmd
     Pdb.do__portable_noop = Noop
     Pdb.do_down = Down
-    Pdb.do_d = Pdb.do_clear
+    Pdb.do_clear = Clear
+    Pdb.do_d = Clear
     Pdb.print_stack_entry = StackEntry
     Pdb._portable_show_displays = ShowDisplays
     Pdb.do_display = Display

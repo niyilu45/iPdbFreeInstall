@@ -14,6 +14,23 @@ from IPython.core.debugger import Pdb
 
 
 class CommandTests(unittest.TestCase):
+    def test_partial_range_deletion(self):
+        from unittest import mock
+        from checkpoints import Manager
+        output = io.StringIO()
+        debugger = Pdb(stdin=io.StringIO(), stdout=output)
+        debugger._portable_displays = {3: {'enabled': True}}
+        debugger.onecmd(debugger.precmd('d disp 1-5'))
+        self.assertEqual(debugger._portable_displays, {})
+        self.assertIn('1, 2, 4, 5', output.getvalue())
+        with mock.patch.object(type(Manager), 'entries', new_callable=mock.PropertyMock, return_value={3: {}}), mock.patch.object(Manager, 'Delete') as delete:
+            debugger.onecmd(debugger.precmd('d check 1-5'))
+            delete.assert_called_once_with(3)
+        import bdb
+        with mock.patch.object(bdb.Breakpoint, 'bpbynumber', [None, None, None, SimpleNamespace(number=3)]), mock.patch.object(debugger, 'clear_bpbynumber', return_value=None) as clear:
+            debugger.onecmd(debugger.precmd('d 1-5'))
+            clear.assert_called_once_with('3')
+
     def test_translation(self):
         cases = {'bt': 'backtrace', 'bt 2': 'backtrace 2', 'finish': 'return',
                  'break sample.py:10 if x == 3': 'break sample.py:10, x == 3',
@@ -330,3 +347,4 @@ with tempfile.TemporaryDirectory() as directory:
 
 if __name__ == '__main__':
     unittest.main()
+
