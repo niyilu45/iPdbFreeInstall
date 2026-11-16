@@ -712,3 +712,24 @@ xvfb-run -a -s '-screen 0 2400x1800x24' python3 repro_source_render.py \
 The harness uses isolated test files and Vim configuration. Put the desired Vim
 and tmux binaries on PATH to test specific versions. Passing these scenarios
 does not establish that a different user configuration or terminal has no bug.
+
+### System gVim source window
+
+Install system gVim and make `gvim` available on PATH. Linux requires a graphical
+desktop (WSLg also works). No tmux is needed for this mode.
+
+```sh
+./ipdbGvim.sh my.py
+```
+
+On Windows use `ipdbGvim.cmd my.py`. The general launcher also accepts
+`--source-gvim`. Debugger input/output stays in the calling terminal while gVim
+shows source in its own GUI window, with your vimrc/plugins and syntax highlighting.
+Use normal desktop window switching between gVim and the terminal; Ctrl-W h/j/k/l
+continues to navigate gVim's internal splits, not operating-system windows.
+
+If the source window is closed while debugging, it automatically reopens at the
+current stopped location. The Python process and its breakpoints remain intact.
+Repeated GUI crashes are rate-limited. Finish with `q` in the debugger; this
+closes an unmodified source window and leaves unsaved gVim buffers open. Saving
+source and entering `r` reloads the program using the same behavior as Vim mode.

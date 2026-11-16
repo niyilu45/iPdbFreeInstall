@@ -59,8 +59,11 @@ if __name__ == '__main__':
     from launch_mode import SelectMode
     mode, arguments = SelectMode(sys.argv[1:])
     sys.argv = [sys.argv[0]] + arguments
-    if mode == 'source-vim':
-        from source_vim import Run
+    if mode in ('source-vim', 'source-gvim'):
+        if mode == 'source-gvim':
+            from source_gvim import Run
+        else:
+            from source_vim import Run
         try:
             sys.exit(Run(arguments))
         except (RuntimeError, OSError) as error:

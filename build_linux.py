@@ -81,7 +81,7 @@ def Build(version):
                             target.write_bytes(z.read(info))
                     continue
                 z.extract(info, vendor)
-    for filename in ('portable_ipdb.py', 'bundle_loader.py', 'launch_mode.py', 'source_theme.py', 'source_browser.py', 'source_panes.py', 'source_vim.py', 'tmux_resize.py', 'windows_vim.py', 'source_vim.vim', 'terminal_keys.py', 'debugger_speed.py', 'reload_code.py', 'output_history.py', 'split_ipdb.py', 'gdb_commands.py', 'completion.py', 'checkpoints.py', 'ipdb.sh', 'ipdbVim.sh', 'ipdbVim.cmd', 'README.md'):
+    for filename in ('portable_ipdb.py', 'bundle_loader.py', 'launch_mode.py', 'source_theme.py', 'source_browser.py', 'source_panes.py', 'source_vim.py', 'source_gvim.py', 'tmux_resize.py', 'windows_vim.py', 'source_vim.vim', 'terminal_keys.py', 'debugger_speed.py', 'reload_code.py', 'output_history.py', 'split_ipdb.py', 'gdb_commands.py', 'completion.py', 'checkpoints.py', 'ipdb.sh', 'ipdbVim.sh', 'ipdbVim.cmd', 'ipdbGvim.sh', 'ipdbGvim.cmd', 'README.md'):
         data = (ROOT / filename).read_bytes()
         if filename.endswith(('.sh', '.vim')):
             data = data.replace(b'\r\n', b'\n')
@@ -96,7 +96,7 @@ def Build(version):
             if path.is_file():
                 info = zipfile.ZipInfo.from_file(path, str(Path(package.name) / path.relative_to(package)))
                 info.create_system = 3
-                info.external_attr = (0o100755 if path.name in ('ipdb.sh', 'ipdbVim.sh') else 0o100644) << 16
+                info.external_attr = (0o100755 if path.name in ('ipdb.sh', 'ipdbVim.sh', 'ipdbGvim.sh') else 0o100644) << 16
                 z.writestr(info, path.read_bytes(), compress_type=zipfile.ZIP_DEFLATED)
     print('BUILT', archive, flush=True)
 

@@ -45,13 +45,15 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.9'
-      - run: sudo apt-get update && sudo apt-get install -y vim tmux
+      - run: sudo apt-get update && sudo apt-get install -y vim-gtk3 tmux xvfb
       - run: |
           unzip -q dist/ipdb-linux-py39.zip -d /tmp/vim-test
           cp test_source_vim.py /tmp/vim-test/ipdb-linux-py39/
           cp repro_source_render.py /tmp/vim-test/ipdb-linux-py39/
+          cp test_gvim.py /tmp/vim-test/ipdb-linux-py39/
           cd /tmp/vim-test/ipdb-linux-py39
           python -B -m unittest test_source_vim -v
+          xvfb-run -a python -B -m unittest test_gvim -v
           python repro_source_render.py --output /tmp/ipdb-render-ci
       - uses: actions/upload-artifact@v4
         if: always()

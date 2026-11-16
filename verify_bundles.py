@@ -22,9 +22,11 @@ def Main():
             prefix = 'ipdb-' + tag + '/'
             assert b'\r' not in z.read(prefix + 'ipdb.sh')
             assert b'\r' not in z.read(prefix + 'ipdbVim.sh')
+            assert b'\r' not in z.read(prefix + 'ipdbGvim.sh')
+            assert z.getinfo(prefix + 'ipdbGvim.sh').external_attr >> 16 & 0o111
             assert b'\r' not in z.read(prefix + 'source_vim.vim')
             assert z.getinfo(prefix + 'ipdbVim.sh').external_attr >> 16 & 0o111
-            for module in ('source_vim.py', 'source_vim.vim', 'windows_vim.py', 'ipdbVim.cmd'):
+            for module in ('source_vim.py', 'source_gvim.py', 'source_vim.vim', 'windows_vim.py', 'ipdbVim.cmd', 'ipdbGvim.cmd'):
                 assert prefix + module in z.namelist()
             assert z.getinfo(prefix + 'ipdb.sh').external_attr >> 16 & 0o111
             packages = {}
