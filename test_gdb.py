@@ -51,6 +51,24 @@ class CommandTests(unittest.TestCase):
                 debugger.clear_all_breaks()
                 bdb.Breakpoint.bplist.clear()
 
+    def test_print_numeric_formats(self):
+        output = io.StringIO()
+        debugger = Pdb(stdin=io.StringIO(), stdout=output)
+        debugger.curframe = sys._getframe()
+        value = 42
+        for command, expected in [('p/t value', '101010'), ('p/x value', '0x2a'),
+                                  ('print/o value', '0o52'), ('p/d value', '42'),
+                                  ('p/x -value', '-0x2a'), ('p/c 65', "'A'")]:
+            output.seek(0)
+            output.truncate(0)
+            debugger.onecmd(debugger.precmd(command))
+            self.assertEqual(output.getvalue().strip(), expected)
+        for command in ['p/x 1.5', 'p/x missing_name', 'p/x', 'p/z value']:
+            output.seek(0)
+            output.truncate(0)
+            debugger.onecmd(debugger.precmd(command))
+            self.assertIn('***', output.getvalue())
+
     def test_translation(self):
         cases = {'bt': 'backtrace', 'bt 2': 'backtrace 2', 'finish': 'return',
                  'break sample.py:10 if x == 3': 'break sample.py:10, x == 3',

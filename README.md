@@ -756,3 +756,15 @@ prompt. `savefig()` remains available with a noninteractive backend such as Agg.
 Explicit `r` reload closes old figures to prevent stale GUI callbacks accessing
 the restarted program. Set `IPDB_PLOT_EVENTS=0` to retain unmodified Matplotlib
 show/input behavior for a session.
+
+### Printing integer expressions in different bases
+
+Use `p/t value` for binary, `p/x value` for hexadecimal, `p/o value`
+for octal, and `p/d value` for decimal. `print/x value` also works.
+`p/c 65` prints the Unicode character `'A'`. Expressions such as
+`p/x value + 16` are evaluated in the selected stack frame.
+
+These formats require an integer (including objects implementing `__index__`).
+Python integers have no fixed width: negative values retain their minus sign,
+for example `p/x -42` prints `-0x2a`, without implicit unsigned conversion.
+Plain `p expression` keeps its usual behavior.

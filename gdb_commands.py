@@ -39,6 +39,9 @@ def Translate(line, native_commands=()):
     if not stripped or stripped.startswith('!'):
         return line
     command, argument = SplitArgument(stripped)
+    if command.startswith(('p/', 'print/')):
+        format_name = command.split('/', 1)[1]
+        return 'print_format ' + format_name + (' ' + argument if argument else '')
     if command == 'down':
         raise ValueError('down is disabled; use frame N to select a stack frame')
     if command in native_commands and command not in ALIASES:
@@ -295,6 +298,30 @@ def Install():
             return
         self.error('Usage: info breakpoints|locals|args|checkpoints|display')
 
+    def PrintFormat(self, argument):
+        """Print an integer expression using /t, /x, /o, /d or /c."""
+        import operator
+        format_name, expression = SplitArgument(argument)
+        formats = {'t': 'b', 'x': 'x', 'o': 'o', 'd': 'd'}
+        if format_name not in formats and format_name != 'c':
+            self.error('Supported print formats: /t /x /o /d /c')
+            return
+        if not expression:
+            self.error('An expression is required')
+            return
+        try:
+            value = operator.index(eval(expression, self.curframe.f_globals, self.curframe.f_locals))
+            if format_name == 'c':
+                rendered = repr(chr(value))
+            else:
+                rendered = format(value, formats[format_name])
+                if format_name in ('x', 'o'):
+                    prefix = '0x' if format_name == 'x' else '0o'
+                    rendered = ('-' + prefix + rendered[1:]) if value < 0 else prefix + rendered
+            self.message(rendered)
+        except Exception as error:
+            self.error('{}: {}'.format(type(error).__name__, error))
+
     def Frame(self, argument):
         """Select a frame; frame 0 is the innermost frame."""
         try:
@@ -412,6 +439,7 @@ def Install():
     Pdb.do_enable_display = EnableDisplay
     Pdb.do_disable_display = DisableDisplay
     Pdb.do_info = Info
+    Pdb.do_print_format = PrintFormat
     Pdb.do_backtrace = Backtrace
     Pdb.do_frame = Frame
     Pdb.do_set = Set
