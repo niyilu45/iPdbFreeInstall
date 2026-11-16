@@ -32,6 +32,30 @@ class Runner(Pdb):
 
 
 class SpeedTests(unittest.TestCase):
+    def test_disabled_breakpoints_do_not_keep_tracing(self):
+        debugger = Runner()
+        self.addCleanup(debugger.clear_all_breaks)
+        line = inspect.getsourcelines(Workload)[1] + 3
+        debugger.set_break(__file__, line)
+        entry = debugger.get_breaks(__file__, line)[0]
+        entry.disable()
+        debugger._portable_displays = {1: {'enabled': True, 'expression': 'total'}}
+        self.assertEqual(debugger.runcall(Workload), 45)
+        self.assertEqual(debugger.traces, [None])
+        self.assertIn(entry, debugger.get_breaks(__file__, line))
+        entry.enable()
+        debugger.stops = []
+        self.assertEqual(debugger.runcall(Workload), 45)
+        self.assertGreater(len(debugger.stops), 1)
+
+    def test_deleted_breakpoints_do_not_keep_tracing(self):
+        debugger = Runner()
+        line = inspect.getsourcelines(Workload)[1] + 3
+        debugger.set_break(__file__, line)
+        debugger.clear_all_breaks()
+        self.assertEqual(debugger.runcall(Workload), 45)
+        self.assertEqual(debugger.traces, [None])
+
     def test_conditional_breakpoint(self):
         debugger = Runner()
         self.addCleanup(debugger.clear_all_breaks)
