@@ -1,4 +1,5 @@
 *.sh text eol=lf
 *.py text eol=lf
+*.vim text eol=lf
 *.md text eol=lf
 *.cmd text eol=crlf

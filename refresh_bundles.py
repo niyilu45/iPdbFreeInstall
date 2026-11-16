@@ -9,6 +9,8 @@ def Main():
         prefix = archive.stem + '/'
         replacement = {prefix + name: (root / name).read_bytes() for name in ('portable_ipdb.py', 'bundle_loader.py', 'launch_mode.py', 'source_theme.py', 'source_browser.py', 'source_panes.py', 'source_vim.py', 'tmux_resize.py', 'windows_vim.py', 'source_vim.vim', 'terminal_keys.py', 'debugger_speed.py', 'reload_code.py', 'output_history.py', 'split_ipdb.py', 'gdb_commands.py', 'completion.py', 'checkpoints.py', 'ipdb.sh', 'ipdbVim.sh', 'ipdbVim.cmd', 'README.md')}
         temporary = archive.with_suffix('.tmp')
+        replacement = {name: data.replace(b'\r\n', b'\n') if name.endswith(('.sh', '.vim')) else data
+                       for name, data in replacement.items()}
         with zipfile.ZipFile(archive) as old, zipfile.ZipFile(temporary, 'w', zipfile.ZIP_DEFLATED) as new:
             for info in old.infolist():
                 if info.filename not in replacement:

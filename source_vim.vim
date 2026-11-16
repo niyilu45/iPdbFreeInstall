@@ -112,6 +112,14 @@ function! IpdbSourcePoll(timer) abort
     endif
     if expand('%:p') !=# fnamemodify(state.file, ':p')
       execute 'keepalt keepjumps hide edit ' . fnameescape(state.file)
+    elseif !&modified
+      let saved_autoread = &l:autoread
+      try
+        setlocal autoread
+        checktime
+      finally
+        let &l:autoread = saved_autoread
+      endtry
     endif
     call cursor(state.line, 1)
     normal! zvzz

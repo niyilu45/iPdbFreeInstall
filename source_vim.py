@@ -129,12 +129,15 @@ def Run(arguments):
             Tmux('bind-key', 'j', 'select-pane', '-D')
             def ResizeCommand(key):
                 return Shell([sys.executable, base / 'tmux_resize.py', tmux, command[2], '#{pane_id}', '#{client_name}', key])
-            Tmux('bind-key', '-n', 'C-w', 'if-shell', '-F', '#{==:#{pane_id},' + source_id + '}', 'send-keys C-w', 'run-shell ' + shlex.quote(ResizeCommand('reset')))
-            for key in '0123456789+-=':
-                Tmux('bind-key', '-T', 'ipdb-nav', key, 'run-shell', ResizeCommand(key))
+            Tmux('bind-key', '-n', 'C-w', 'if-shell', '-F', '#{==:#{pane_id},' + source_id + '}', 'send-keys C-w', 'set-option -p @ipdb-resize-count "" ; switch-client -T ipdb-nav')
+            for key in '0123456789':
+                Tmux('bind-key', '-T', 'ipdb-nav', key,
+                     'set-option -p -F @ipdb-resize-count "#{@ipdb-resize-count}' + key + '" ; switch-client -T ipdb-nav')
+            for key in '+-=':
+                Tmux('bind-key', '-T', 'ipdb-nav', key, 'run-shell ' + shlex.quote(ResizeCommand(key)) + ' ; switch-client -T root')
             for key, direction in (('h', '-L'), ('j', '-D'), ('k', '-U'), ('l', '-R')):
-                Tmux('bind-key', '-T', 'ipdb-nav', key, 'select-pane', direction)
-            Tmux('bind-key', '-T', 'ipdb-nav', 'C-w', 'send-keys', 'C-w')
+                Tmux('bind-key', '-T', 'ipdb-nav', key, 'select-pane ' + direction + ' ; switch-client -T root')
+            Tmux('bind-key', '-T', 'ipdb-nav', 'C-w', 'send-keys C-w ; switch-client -T root')
             Tmux('select-pane', '-t', 'debug:0.1')
             code = subprocess.call(command + ['attach-session', '-t', 'debug'], env=environment)
             return int((root / 'result').read_text()) if (root / 'result').exists() else code

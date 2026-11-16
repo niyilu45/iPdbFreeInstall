@@ -128,6 +128,13 @@ call win_gotoid(win_getid(1, 1))
 call assert_equal(fnamemodify($IPDB_NEW_SOURCE, ':p'), expand('%:p'))
 call assert_equal(2, line('.'))
 only
+call writefile(['# saved edit', 'def helper():', '    return 99'], $IPDB_NEW_SOURCE)
+let message.line = 3
+let message.event = 1001
+call writefile([json_encode(message)], $IPDB_VIM_STATE)
+call IpdbSourcePoll(0)
+call assert_equal('    return 99', getline(3))
+call assert_equal(3, line('.'))
 split
 wincmd j
 let oldheight = winheight(0)
@@ -189,6 +196,49 @@ qa!
             self.assertEqual((root / 'errors').read_text(), '')
 
     @unittest.skipUnless(sys.platform.startswith('linux') and shutil.which('vim') and shutil.which('tmux'), 'Linux Vim/tmux required')
+    def test_tmux_source_cells_after_jump_and_file_change(self):
+        import time
+        import uuid
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / 'rows.py'
+            rows = ["row_{:04d} = {!r}".format(i, 'X' * (170 if i % 2 else 3)) for i in range(1, 201)]
+            source.write_text('\n'.join(rows) + '\n')
+            other = root / 'other.py'
+            other.write_text('def other():\n    return 99\n')
+            state = root / 'state'
+            Publish(state, str(source), 1)
+            command = ['tmux', '-L', 'ipdb-cells-' + uuid.uuid4().hex, '-f', '/dev/null']
+            env = dict(os.environ, TERM='xterm-256color', IPDB_TMUX_SOCKET=command[2],
+                       IPDB_VIM_STATE=str(state), IPDB_VIM_READY=str(root / 'ready'), HOME=directory)
+            def Tmux(*args):
+                return subprocess.check_output(command + list(args), env=env, universal_newlines=True)
+            from source_vim import Shell
+            try:
+                Tmux('new-session', '-d', '-s', 'cells', '-x', '234', '-y', '34',
+                     Shell(['vim', '-N', '-u', 'NONE', '-i', 'NONE', '-n', '-S', Path(__file__).with_name('source_vim.vim').resolve()]))
+                deadline = time.monotonic() + 10
+                while not (root / 'ready').exists() and time.monotonic() < deadline:
+                    time.sleep(0.05)
+                self.assertTrue((root / 'ready').exists())
+                while 'row_0001' not in Tmux('capture-pane', '-p', '-t', 'cells:0.0') and time.monotonic() < deadline:
+                    time.sleep(0.05)
+                for target in (200, 12, 180, 35, 1):
+                    Tmux('send-keys', '-t', 'cells:0.0', str(target) + 'G')
+                    time.sleep(0.2)
+                    screen = Tmux('capture-pane', '-p', '-t', 'cells:0.0')
+                    visible = [line.strip().lstrip('>').strip() for line in screen.splitlines() if 'row_' in line]
+                    self.assertTrue(any(line.startswith('row_{:04d}'.format(target)) for line in visible), screen)
+                    self.assertTrue(all(line in rows for line in visible), screen)
+                Publish(state, str(other), 2)
+                time.sleep(0.3)
+                screen = Tmux('capture-pane', '-p', '-t', 'cells:0.0')
+                self.assertIn('return 99', screen)
+                self.assertNotIn('row_', screen)
+            finally:
+                subprocess.run(command + ['kill-server'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+    @unittest.skipUnless(sys.platform.startswith('linux') and shutil.which('vim') and shutil.which('tmux'), 'Linux Vim/tmux required')
     def test_linux_tmux_launch_and_exit(self):
         import pty
         import select
@@ -232,9 +282,16 @@ qa!
                 os.write(master, b'p val\t\n')
                 WaitFor(b'41')
                 self.assertNotIn(b'NameError', output)
+                script.write_text('# saved edit\nvalue = 41\nprint("NEW_RESULT", value + 1)\n')
                 output.clear()
-                os.write(master, b'\x175+\x17=c\n')
-                WaitFor(b'RESULT 42')
+                os.write(master, b'r\n')
+                WaitFor(b'Reloading saved project source')
+                self.assertIsNone(process.poll())
+                output.clear()
+                for key in b'\x175+\x17=c\n':
+                    os.write(master, bytes([key]))
+                    time.sleep(0.1)
+                WaitFor(b'NEW_RESULT 42')
                 output.clear()
                 os.write(master, b'q\n')
                 WaitFor(b'Press Enter')

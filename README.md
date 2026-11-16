@@ -557,8 +557,14 @@ are evicted from the module cache and loaded from source, bypassing stale pyc
 files even for same-size saves with the same timestamp. Modules loaded before
 the debug session, modules outside that directory, and native extensions are
 not reloaded. This is a program restart, not live replacement of active frames.
-Breakpoints remain line-based; adjust them if edits move code. Existing fork
-checkpoints are discarded on restart so they cannot restore pre-edit state.
+The debugger process and command history remain alive. Breakpoints follow
+uniquely identifiable statements within the same function or class, preserving
+their numbers, conditions, ignore counts and enabled state. Deleted or ambiguous
+locations are disabled with a message instead of stopping on unrelated code.
+Invalid saved entry-script syntax leaves the current prompt available for repair.
+The r command also works after an uncaught program exception: it leaves
+post-mortem debugging and reruns the saved program in the same debugger session.
+Existing fork checkpoints are discarded so they cannot restore pre-edit state.
 
 
 ### Window height keys in system Vim/tmux mode

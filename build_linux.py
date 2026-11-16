@@ -82,7 +82,10 @@ def Build(version):
                     continue
                 z.extract(info, vendor)
     for filename in ('portable_ipdb.py', 'bundle_loader.py', 'launch_mode.py', 'source_theme.py', 'source_browser.py', 'source_panes.py', 'source_vim.py', 'tmux_resize.py', 'windows_vim.py', 'source_vim.vim', 'terminal_keys.py', 'debugger_speed.py', 'reload_code.py', 'output_history.py', 'split_ipdb.py', 'gdb_commands.py', 'completion.py', 'checkpoints.py', 'ipdb.sh', 'ipdbVim.sh', 'ipdbVim.cmd', 'README.md'):
-        shutil.copyfile(ROOT / filename, package / filename)
+        data = (ROOT / filename).read_bytes()
+        if filename.endswith(('.sh', '.vim')):
+            data = data.replace(b'\r\n', b'\n')
+        (package / filename).write_bytes(data)
     (package / 'requirements.lock').write_text('\n'.join('{}=={}'.format(k, v[0]) for k, v in sorted(selected.items())) + '\n')
     (package / 'wheel-sha256.json').write_text(json.dumps({p.name: hashlib.sha256(p.read_bytes()).hexdigest() for _, p in selected.values()}, indent=2))
     dist = ROOT / 'dist'
