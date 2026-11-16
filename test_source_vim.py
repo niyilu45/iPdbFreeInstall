@@ -95,7 +95,7 @@ class VimTests(unittest.TestCase):
             (root / 'plugin/probe.vim').write_text('let g:portable_test_plugin = 42\n')
             (root / 'vimrc').write_text("set nocompatible\nset loadplugins\nexecute 'set runtimepath^=' . fnameescape($IPDB_TEST_ROOT)\n")
             source = root / "source file.py"
-            source.write_text('one\ntwo\nthree\nfour\n')
+            source.write_text('def one():\n    return 2\nthree\nfour\n')
             state = root / 'state'
             alternate = root / 'helper.py'
             alternate.write_text('def helper():\n    return 42\n')
@@ -116,6 +116,7 @@ IpdbViewInfo
 call assert_match('background_erase', execute('messages'))
 call IpdbSourcePoll(0)
 call assert_equal(2, line('.'))
+call assert_equal('pythonStatement', synIDattr(synID(1, 1, 1), 'name'))
 execute 'IpdbViewDump ' . fnameescape($IPDB_TEST_ROOT . '/view-dump.json')
 let diagnostic = json_decode(join(readfile($IPDB_TEST_ROOT . '/view-dump.json'), "\\n"))
 call assert_equal(expand('%:p'), diagnostic.file)

@@ -193,6 +193,19 @@ function! IpdbSourcePoll(timer) abort
     if has('syntax') && !empty(&l:filetype) && !exists('b:current_syntax')
       let &l:syntax = empty(&l:syntax) ? &l:filetype : &l:syntax
     endif
+    " An initialized option/marker does not prove syntax rules were loaded.
+    " Load them explicitly once for each source buffer, including timer opens.
+    if has('syntax') && !get(b:, 'ipdb_syntax_ready', 0)
+      let syntax_name = empty(&l:syntax) ? &l:filetype : &l:syntax
+      if syntax_name =~# '^\w\+\(\.\w\+\)*$'
+        syntax clear
+        unlet! b:current_syntax
+        for syntax_part in split(syntax_name, '\.')
+          execute 'runtime! syntax/' . syntax_part . '.vim'
+        endfor
+        let b:ipdb_syntax_ready = exists('b:current_syntax')
+      endif
+    endif
     call cursor(state.line, 1)
     normal! zvzz
     silent! sign unplace 7351
