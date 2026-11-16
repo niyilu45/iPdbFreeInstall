@@ -160,3 +160,43 @@ if !empty($IPDB_TMUX_SOCKET)
 endif
 
 command! IpdbViewInfo echomsg string({'term': $TERM, 'vim': v:version, 'size': [&lines, &columns], 'view': winsaveview(), 'lazyredraw': &lazyredraw, 'ttyscroll': &ttyscroll, 'background_erase': &t_ut})
+
+" Explicit diagnostics only: no polling overhead and no automatic uploads.
+function! IpdbViewDump(path) abort
+  let output = empty(a:path) ? tempname() . '.json' : expand(a:path)
+  let options = {}
+  for name in ['term', 'encoding', 'termencoding', 'ambiwidth', 'display',
+        \ 'lines', 'columns', 'wrap', 'linebreak', 'breakindent', 'number',
+        \ 'relativenumber', 'list', 'listchars', 'scrolloff', 'sidescrolloff',
+        \ 'lazyredraw', 'ttyfast', 'ttyscroll', 'termguicolors', 'synmaxcol',
+        \ 't_Co', 't_ce', 't_cd', 't_cl', 't_cs', 't_cm', 't_al', 't_dl',
+        \ 't_AL', 't_DL', 't_ut', 't_ti', 't_te']
+    if exists('&' . name)
+      let options[name] = eval('&' . name)
+    endif
+  endfor
+  let cells = []
+  for row in range(1, &lines)
+    let text = ''
+    for column in range(1, &columns)
+      let character = screenchar(row, column)
+      let text .= character > 0 ? nr2char(character) : ' '
+    endfor
+    call add(cells, text)
+  endfor
+  let report = {'version': execute('version'), 'term': $TERM,
+        \ 'options': options, 'view': winsaveview(), 'file': expand('%:p'),
+        \ 'visible_source': getline(line('w0'), line('w$')),
+        \ 'vim_screen': cells, 'scripts': execute('scriptnames'),
+        \ 'messages': execute('messages'), 'source_error': get(g:, 'ipdb_source_error', ''),
+        \ 'tmux_pane': $TMUX_PANE, 'konsole_version': $KONSOLE_VERSION}
+  if !empty($IPDB_TMUX_SOCKET) && !empty($IPDB_TMUX_BIN) && !empty($TMUX_PANE)
+    let command = shellescape($IPDB_TMUX_BIN) . ' -L ' . shellescape($IPDB_TMUX_SOCKET)
+    let report.tmux_screen = systemlist(command . ' capture-pane -p -t ' . shellescape($TMUX_PANE))
+    let report.tmux_version = systemlist(shellescape($IPDB_TMUX_BIN) . ' -V')
+    let report.tmux_panes = systemlist(command . ' list-panes -F ' . shellescape('#{pane_id} #{pane_width}x#{pane_height} #{pane_current_command}'))
+  endif
+  call writefile([json_encode(report)], output)
+  echom 'ipdb view diagnostic saved: ' . fnamemodify(output, ':p')
+endfunction
+command! -nargs=? -complete=file IpdbViewDump call IpdbViewDump(<q-args>)

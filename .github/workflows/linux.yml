@@ -49,5 +49,12 @@ jobs:
       - run: |
           unzip -q dist/ipdb-linux-py39.zip -d /tmp/vim-test
           cp test_source_vim.py /tmp/vim-test/ipdb-linux-py39/
+          cp repro_source_render.py /tmp/vim-test/ipdb-linux-py39/
           cd /tmp/vim-test/ipdb-linux-py39
           python -B -m unittest test_source_vim -v
+          python repro_source_render.py --output /tmp/ipdb-render-ci
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: source-render-screens
+          path: /tmp/ipdb-render-ci

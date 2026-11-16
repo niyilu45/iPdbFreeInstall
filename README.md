@@ -648,3 +648,32 @@ the debugger source bridge. It does not edit vimrc or remove swap files. The
 normal launcher continues loading your configuration. If captured tmux content
 contains stale code, comparing this mode with the normal mode helps isolate
 configuration/plugin interactions from the bridge and terminal stream.
+
+For a stale screen, run `:IpdbViewDump /tmp/ipdb-view.json` in the affected Vim
+window before paging or redrawing. The local JSON records Vim's cached screen,
+tmux's captured pane, visible source, viewport, terminal capabilities, exact Vim
+version and loaded script paths. It does not upload anything or run background
+diagnostics. This lets a report include the actual rendering state without a
+screenshot; the file contains the visible source code.
+
+The source checkout includes `repro_source_render.py` for Linux. It generates
+long/short source rows and a cross-file call, drives the actual launcher, and
+retains each tmux screen plus a JSON result list. Use a new output directory:
+
+```sh
+python3 repro_source_render.py --output /tmp/ipdb-render-run1
+```
+
+With Konsole, Xvfb and xdotool available, the more demanding scenario also tests
+wide characters, wrapping, page-away/restore comparisons, interleaved stepping,
+mouse wheels, window resizing, Vim splits and an actual swap-file conflict:
+
+```sh
+xvfb-run -a -s '-screen 0 2400x1800x24' python3 repro_source_render.py \
+  --output /tmp/ipdb-render-run2 --konsole --stress-content \
+  --vim-term screen-256color --source-rows 34 --swap-conflict
+```
+
+The harness uses isolated test files and Vim configuration. Put the desired Vim
+and tmux binaries on PATH to test specific versions. Passing these scenarios
+does not establish that a different user configuration or terminal has no bug.

@@ -98,6 +98,12 @@ IpdbViewInfo
 call assert_match('background_erase', execute('messages'))
 call IpdbSourcePoll(0)
 call assert_equal(2, line('.'))
+execute 'IpdbViewDump ' . fnameescape($IPDB_TEST_ROOT . '/view-dump.json')
+let diagnostic = json_decode(join(readfile($IPDB_TEST_ROOT . '/view-dump.json'), "\\n"))
+call assert_equal(expand('%:p'), diagnostic.file)
+call assert_equal(2, diagnostic.view.lnum)
+call assert_true(has_key(diagnostic.options, 't_ce'))
+call assert_true(has_key(diagnostic, 'vim_screen'))
 vsplit
 wincmd l
 call cursor(1, 1)
