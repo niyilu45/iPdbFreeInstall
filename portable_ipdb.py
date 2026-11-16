@@ -54,10 +54,15 @@ from reload_code import Install as InstallReload
 InstallReload()
 from gdb_commands import Install
 Install()
+from plot_events import Install as InstallPlotEvents
+if __name__ != '__main__':
+    InstallPlotEvents()
 
 if __name__ == '__main__':
     from launch_mode import SelectMode
     mode, arguments = SelectMode(sys.argv[1:])
+    if mode != 'pudb':
+        InstallPlotEvents()
     sys.argv = [sys.argv[0]] + arguments
     if mode in ('source-vim', 'source-gvim'):
         if mode == 'source-gvim':

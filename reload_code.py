@@ -117,6 +117,10 @@ class ProjectFinder(importlib.abc.MetaPathFinder):
 
 
 def Refresh(debugger):
+    pyplot = sys.modules.get('matplotlib.pyplot')
+    if pyplot is not None and getattr(pyplot.show, '_portable_nonblocking', False) is True:
+        # Old GUI timers must not call into the reset __main__ namespace.
+        pyplot.close('all')
     root = debugger._portable_project_root
     protected = debugger._portable_initial_modules
     removed = []

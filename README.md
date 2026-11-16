@@ -733,3 +733,24 @@ current stopped location. The Python process and its breakpoints remain intact.
 Repeated GUI crashes are rate-limited. Finish with `q` in the debugger; this
 closes an unmodified source window and leaves unsaved gVim buffers open. Saving
 source and entering `r` reloads the program using the same behavior as Vim mode.
+
+### Matplotlib during debugging
+
+Matplotlib and the chosen GUI backend must be installed in the Python environment
+running the program; they are not bundled with this debugger. In ipdb modes
+(plain, built-in split, system Vim and gVim), ordinary `plt.show()` defaults to
+`block=False`. An explicit `plt.show(block=True)` keeps its blocking behavior.
+While waiting at the debugger prompt, pending figure events are processed on the
+main thread, allowing window interactions without a resume command. Existing
+readline/prompt editing is retained. Matplotlib is not imported at startup unless
+the program imports it.
+
+Linux TkAgg/Qt5Agg and Windows TkAgg have real-window regression tests checking
+that GUI timers and close events still run on the main thread at a breakpoint.
+Other backends, external GUI loops and embedded PuDB are not covered by this
+integration. Long computations, long debugger expressions and blocking GUI
+callbacks can still make windows unresponsive until control returns to the
+prompt. `savefig()` remains available with a noninteractive backend such as Agg.
+Explicit `r` reload closes old figures to prevent stale GUI callbacks accessing
+the restarted program. Set `IPDB_PLOT_EVENTS=0` to retain unmodified Matplotlib
+show/input behavior for a session.

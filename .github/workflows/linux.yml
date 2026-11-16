@@ -31,12 +31,13 @@ jobs:
           cp test_reload.py /tmp/ipdb-test/ipdb-linux-${{ matrix.tag }}/
           cp test_tmux_resize.py /tmp/ipdb-test/ipdb-linux-${{ matrix.tag }}/
           cp test_input.py /tmp/ipdb-test/ipdb-linux-${{ matrix.tag }}/
+          cp test_plot_events.py /tmp/ipdb-test/ipdb-linux-${{ matrix.tag }}/
       - name: Test without site packages or dependency installation
         run: >-
           docker run --rm
           -v /tmp/ipdb-test/ipdb-linux-${{ matrix.tag }}:/work
           -w /work python:${{ matrix.python }}
-          python -S -B -m unittest test_split.py test_gdb.py test_loader.py test_completion.py test_input.py test_history.py test_speed.py test_browser.py test_panes.py test_reload.py test_tmux_resize.py -v
+          python -S -B -m unittest test_split.py test_gdb.py test_loader.py test_completion.py test_input.py test_history.py test_speed.py test_browser.py test_panes.py test_reload.py test_tmux_resize.py test_plot_events.py -v
 
   system-vim:
     runs-on: ubuntu-latest
@@ -60,3 +61,14 @@ jobs:
         with:
           name: source-render-screens
           path: /tmp/ipdb-render-ci
+
+  matplotlib-gui:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y python3-matplotlib python3-tk python3-pyqt5 python3-pyqt5.qtsvg xvfb
+      - run: |
+          unzip -q dist/ipdb-linux-py310.zip -d /tmp/plot-test
+          cp test_plot_events.py /tmp/plot-test/ipdb-linux-py310/
+          cd /tmp/plot-test/ipdb-linux-py310
+          xvfb-run -a /usr/bin/python3 -B -m unittest test_plot_events -v
