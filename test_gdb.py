@@ -56,9 +56,13 @@ class CommandTests(unittest.TestCase):
         debugger = Pdb(stdin=io.StringIO(), stdout=output)
         debugger.curframe = sys._getframe()
         value = 42
-        for command, expected in [('p/t value', '101010'), ('p/x value', '0x2a'),
-                                  ('print/o value', '0o52'), ('p/d value', '42'),
-                                  ('p/x -value', '-0x2a'), ('p/c 65', "'A'")]:
+        for command, expected in [('p/t value', '00101010'), ('p/x value', '0x2a'),
+                                  ('print/o value', '0o052'), ('p/d value', '42'),
+                                  ('p/x -value', '0xd6'), ('p/c 65', "'A'"), ('p/x -128', '0x80'),
+                                  ('p/x -129', '0xff7f'), ('p/x 128', '0x0080'),
+                                  ('p/x -32768', '0x8000'), ('p/x -32769', '0xff7fff'),
+                                  ('p/t -1', '11111111'), ('p/x 0', '0x00'),
+                                  ('p/d -42', '-42'), ('p/o -42', '0o326')]:
             output.seek(0)
             output.truncate(0)
             debugger.onecmd(debugger.precmd(command))

@@ -313,11 +313,15 @@ def Install():
             value = operator.index(eval(expression, self.curframe.f_globals, self.curframe.f_locals))
             if format_name == 'c':
                 rendered = repr(chr(value))
+            elif format_name == 'd':
+                rendered = str(value)
             else:
-                rendered = format(value, formats[format_name])
-                if format_name in ('x', 'o'):
-                    prefix = '0x' if format_name == 'x' else '0o'
-                    rendered = ('-' + prefix + rendered[1:]) if value < 0 else prefix + rendered
+                bits = (value if value >= 0 else ~value).bit_length() + 1
+                width = max(8, ((bits + 7) // 8) * 8)
+                encoded = value & ((1 << width) - 1)
+                digits = {'t': width, 'x': width // 4, 'o': (width + 2) // 3}[format_name]
+                prefix = {'t': '', 'x': '0x', 'o': '0o'}[format_name]
+                rendered = prefix + format(encoded, '0{}{}'.format(digits, formats[format_name]))
             self.message(rendered)
         except Exception as error:
             self.error('{}: {}'.format(type(error).__name__, error))

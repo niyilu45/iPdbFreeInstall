@@ -765,6 +765,8 @@ for octal, and `p/d value` for decimal. `print/x value` also works.
 `p/x value + 16` are evaluated in the selected stack frame.
 
 These formats require an integer (including objects implementing `__index__`).
-Python integers have no fixed width: negative values retain their minus sign,
-for example `p/x -42` prints `-0x2a`, without implicit unsigned conversion.
+Binary, octal and hexadecimal use two's complement at the smallest signed
+width rounded up to a multiple of 8 bits (minimum 8). Output is zero-padded
+to that width. For example, `p/x -42` prints `0xd6`, `p/x -129` prints
+`0xff7f`, and `p/x 128` prints `0x0080`. Decimal keeps the sign.
 Plain `p expression` keeps its usual behavior.
