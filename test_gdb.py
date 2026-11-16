@@ -151,6 +151,7 @@ class CommandTests(unittest.TestCase):
                 text = output.getvalue()
                 self.assertIn('Breakpoint', text)
                 self.assertRegex(text, r'(?m)^2\s*$')
+                self.assertRegex(text, r'Breakpoint \d+ hit; condition: value == 2')
             finally:
                 debugger.clear_all_breaks()
                 bdb.Breakpoint.bplist.clear()

@@ -87,6 +87,30 @@ def Install():
     original = Pdb.precmd
     original_restart = Pdb.do_restart
     original_stack_entry = Pdb.print_stack_entry
+    original_break_here = Pdb.break_here
+
+    def BreakHere(self, frame):
+        if not self.breaks:
+            return original_break_here(self, frame)
+        import bdb
+        # Temporary breakpoints may be deleted by the native hit handler.
+        filename = self.canonic(frame.f_code.co_filename)
+        lines = self.breaks.get(filename, ())
+        if frame.f_lineno not in lines and frame.f_code.co_firstlineno not in lines:
+            return original_break_here(self, frame)
+        candidates = list(bdb.Breakpoint.bplist.get((filename, frame.f_lineno), ()))
+        if frame.f_lineno != frame.f_code.co_firstlineno:
+            candidates += list(bdb.Breakpoint.bplist.get((filename, frame.f_code.co_firstlineno), ()))
+        conditions = {entry.number: entry.cond for entry in candidates}
+        hit = original_break_here(self, frame)
+        if hit:
+            number = self.currentbp
+            condition = conditions.get(number)
+            self.message('Breakpoint {} hit; condition: {}'.format(
+                number, condition if condition else '<unconditional>'))
+        return hit
+
+    Pdb.break_here = BreakHere
 
     def DisplayEntries(self):
         if not hasattr(self, '_portable_displays'):
