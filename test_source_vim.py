@@ -175,8 +175,8 @@ call writefile(v:errors, $IPDB_TEST_ERRORS)
 qa!
 ''')
             env = dict(os.environ, IPDB_TMUX_SOCKET='test-only', IPDB_TMUX_BIN='tmux', IPDB_TEST_ROOT=str(root), IPDB_NEW_SOURCE=str(alternate), IPDB_BRIDGE=str(Path(__file__).with_name('source_vim.vim').resolve()), IPDB_VIM_STATE=str(state), IPDB_VIM_READY=str(root / 'ready'), IPDB_TEST_ERRORS=str(root / 'errors'))
-            result = subprocess.run([shutil.which('vim'), '-N', '-u', str(root / 'vimrc'), '-i', 'NONE', '-n', '-es', '-S', str(script)], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=20)
-            self.assertEqual(result.returncode, 0, result.stderr)
+            result = subprocess.run([shutil.which('vim'), '-V1' + str(root / 'vim.log'), '-N', '-u', str(root / 'vimrc'), '-i', 'NONE', '-n', '-es', '-S', str(script)], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=20)
+            self.assertEqual(result.returncode, 0, (root / 'vim.log').read_text(errors='replace'))
             self.assertEqual((root / 'ready').read_text().strip(), 'ready')
             self.assertEqual((root / 'errors').read_text(), '')
 

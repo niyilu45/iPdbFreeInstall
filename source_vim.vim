@@ -151,4 +151,4 @@ if !empty($IPDB_TMUX_SOCKET)
   nnoremap <silent> <C-w>l :call IpdbWindowMove('l')<CR>
 endif
 
-command! IpdbViewInfo echomsg {'term': $TERM, 'vim': v:version, 'size': [&lines, &columns], 'view': winsaveview(), 'lazyredraw': &lazyredraw, 'ttyscroll': &ttyscroll, 'background_erase': &t_ut}
+command! IpdbViewInfo echomsg string({'term': $TERM, 'vim': v:version, 'size': [&lines, &columns], 'view': winsaveview(), 'lazyredraw': &lazyredraw, 'ttyscroll': &ttyscroll, 'background_erase': &t_ut})
