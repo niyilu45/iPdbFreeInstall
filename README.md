@@ -634,3 +634,11 @@ source updates and redraw are paused outside Normal mode, including Ex command
 output and hit-enter prompts. Command-line exit no longer forces a repaint,
 so :ls and :IpdbViewInfo remain visible. IpdbViewInfo also stores its output in
 :messages. Use the exact command capitalization :IpdbViewInfo.
+
+
+For source-rendering diagnosis, run `IPDB_VIM_CLEAN=1 ./ipdbVim.sh my.py`.
+This disables user Vim configuration/plugins for that session while retaining
+the debugger source bridge. It does not edit vimrc or remove swap files. The
+normal launcher continues loading your configuration. If captured tmux content
+contains stale code, comparing this mode with the normal mode helps isolate
+configuration/plugin interactions from the bridge and terminal stream.

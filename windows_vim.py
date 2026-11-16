@@ -108,7 +108,8 @@ def Run(arguments):
     with tempfile.TemporaryDirectory(prefix='ipdb-vim-') as directory:
         root = Path(directory)
         config = {key: str(root / key) for key in ('state', 'ready', 'close', 'closed', 'result', 'done', 'vim_result', 'debug_pid')}
-        config.update(vim=[vim, '-S', str(base / 'source_vim.vim')],
+        from source_vim import VimCommand
+        config.update(vim=VimCommand(vim, base / 'source_vim.vim'),
                       debugger=[sys.executable, str(base / 'portable_ipdb.py'), '--plain'] + list(arguments), cwd=os.getcwd())
         config_path = root / 'config.json'
         config_path.write_text(json.dumps(config))

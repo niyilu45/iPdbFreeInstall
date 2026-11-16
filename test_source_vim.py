@@ -18,6 +18,14 @@ class VimTests(unittest.TestCase):
         values = ['python', '/tmp/a b.py', "quote'and$(literal)"]
         self.assertEqual(shlex.split(Shell(values)), ['exec'] + values)
 
+    def test_clean_vim_is_opt_in(self):
+        from unittest import mock
+        from source_vim import VimCommand
+        with mock.patch.dict(os.environ, {'IPDB_VIM_CLEAN': '1'}):
+            self.assertEqual(VimCommand('vim', 'bridge.vim'), ['vim', '-N', '-u', 'NONE', '-i', 'NONE', '-S', 'bridge.vim'])
+        with mock.patch.dict(os.environ, {'IPDB_VIM_CLEAN': ''}):
+            self.assertEqual(VimCommand('vim', 'bridge.vim'), ['vim', '-S', 'bridge.vim'])
+
     def test_atomic_source_message(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'state'

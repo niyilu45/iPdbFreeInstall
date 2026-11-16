@@ -52,6 +52,14 @@ def Shell(arguments):
     return 'exec ' + ' '.join(shlex.quote(str(value)) for value in arguments)
 
 
+def VimCommand(vim, bridge):
+    command = [str(vim)]
+    if os.environ.get('IPDB_VIM_CLEAN') == '1':
+        command.extend(['-N', '-u', 'NONE', '-i', 'NONE'])
+    command.extend(['-S', str(bridge)])
+    return command
+
+
 def Worker(config_path):
     config = json.loads(Path(config_path).read_text())
     environment = dict(os.environ, IPDB_VIM_STATE=config['state'])
@@ -89,6 +97,8 @@ def Run(arguments):
         if result.returncode:
             raise RuntimeError('tmux: ' + result.stderr.strip())
         return result.stdout.strip()
+    if os.environ.get('IPDB_VIM_CLEAN') == '1':
+        print('[ipdb] Diagnostic mode: user vimrc and plugins disabled for this session.', flush=True)
     print('[ipdb] Starting system Vim with your vimrc and plugins; Ctrl-B then k/j switches Vim/ipdb.', flush=True)
     with tempfile.TemporaryDirectory(prefix='ipdb-vim-') as directory:
         root = Path(directory)
@@ -101,7 +111,7 @@ def Run(arguments):
         (root / 'config.json').write_text(json.dumps(config))
         size = shutil.get_terminal_size()
         try:
-            source_id = Tmux('new-session', '-P', '-F', '#{pane_id}', '-d', '-s', 'debug', '-x', str(size.columns), '-y', str(size.lines), Shell([vim, '-S', base / 'source_vim.vim']))
+            source_id = Tmux('new-session', '-P', '-F', '#{pane_id}', '-d', '-s', 'debug', '-x', str(size.columns), '-y', str(size.lines), Shell(VimCommand(vim, base / 'source_vim.vim')))
             deadline = time.monotonic() + 20
             while not (root / 'ready').exists() and time.monotonic() < deadline:
                 time.sleep(0.1)
