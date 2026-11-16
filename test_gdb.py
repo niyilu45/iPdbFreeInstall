@@ -155,6 +155,25 @@ class CommandTests(unittest.TestCase):
                 debugger.clear_all_breaks()
                 bdb.Breakpoint.bplist.clear()
 
+    def test_condition_without_location(self):
+        import bdb
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'condition_current.py'
+            path.write_text('for value in range(4):\n    marker = value\n')
+            output = io.StringIO()
+            debugger = Pdb(stdin=io.StringIO(), stdout=output)
+            debugger.use_rawinput = False
+            debugger.cmdqueue = ['next', 'b if value == 2', 'continue',
+                                 '!print("HIT=" + str(value))', 'quit']
+            try:
+                debugger.run(compile(path.read_text(), str(path), 'exec'), {})
+                self.assertIn('HIT=2', output.getvalue())
+                self.assertTrue(any(bp.cond == 'value == 2' and bp.line == 2
+                                    for bp in bdb.Breakpoint.bpbynumber if bp))
+            finally:
+                debugger.clear_all_breaks()
+                bdb.Breakpoint.bplist.clear()
+
     def test_set_local(self):
         value = 1
         frame = sys._getframe()

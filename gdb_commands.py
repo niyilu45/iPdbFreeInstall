@@ -71,7 +71,7 @@ def Translate(line, native_commands=()):
         subcommand, remainder = SplitArgument(argument)
         subcommand = Resolve(subcommand, ('variable',), {'v': 'variable', 'var': 'variable'})
         argument = subcommand + (' ' + remainder if remainder else '')
-    if command in ('break', 'tbreak'):
+    if command in ('break', 'tbreak') and SplitArgument(argument)[0] != 'if':
         parts = re.split(r'\s+if\s+', argument, maxsplit=1)
         if len(parts) == 2:
             argument = parts[0] + ', ' + parts[1]
@@ -172,7 +172,18 @@ def Install():
 
     def Precmd(self, line):
         try:
-            return original(self, Translate(line, native_commands))
+            translated = Translate(line, native_commands)
+            command, argument = SplitArgument(translated)
+            word, condition = SplitArgument(argument)
+            if command in ('break', 'tbreak') and word == 'if':
+                if not condition:
+                    raise ValueError('A breakpoint condition is required after if')
+                frame = getattr(self, 'curframe', None)
+                if frame is None:
+                    raise ValueError('No current frame for the breakpoint')
+                translated = '{} {}:{}, {}'.format(
+                    command, frame.f_code.co_filename, frame.f_lineno, condition)
+            return original(self, translated)
         except ValueError as error:
             self.error(str(error))
             return '_portable_noop'
