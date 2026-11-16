@@ -627,3 +627,10 @@ with signal_count, signal_config and signal_status, sig<Tab> becomes signal_.
 Another Tab does nothing; after typing c, Tab extends to signal_co. After typing
 u, Tab completes signal_count. Candidate lists are never displayed for these
 completions, including repeated Tab presses. Completion remains triggered by Tab.
+
+
+Background source polling no longer repaints an unchanged view. Automatic
+source updates and redraw are paused outside Normal mode, including Ex command
+output and hit-enter prompts. Command-line exit no longer forces a repaint,
+so :ls and :IpdbViewInfo remain visible. IpdbViewInfo also stores its output in
+:messages. Use the exact command capitalization :IpdbViewInfo.

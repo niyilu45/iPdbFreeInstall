@@ -31,6 +31,9 @@ function! IpdbViewSignature() abort
         \ foldclosed(line('.')), foldclosedend(line('.'))])
 endfunction
 function! IpdbSourceRedraw(force) abort
+  if mode(1) !~# '^n'
+    return 0
+  endif
   if s:redrawing
     return 0
   endif
@@ -68,17 +71,15 @@ augroup PortableIpdbRedraw
   autocmd CursorMoved,CursorMovedI * call IpdbQueueRedraw()
   autocmd WinEnter,BufWinEnter,VimResized,TabEnter,FocusGained,InsertLeave * call IpdbQueueRedraw(1)
   autocmd TextChanged,TextChangedI * call IpdbQueueRedraw(1)
-  if exists('##CmdlineLeave')
-    autocmd CmdlineLeave * call IpdbQueueRedraw(1)
-  endif
   if exists('##WinScrolled')
     autocmd WinScrolled * call IpdbQueueRedraw()
   endif
 augroup END
 function! IpdbSourcePoll(timer) abort
-  " Catch scrolling/folds without CursorMoved on older Vim versions.
-  if mode() !~# '^[ciR]'
-    call IpdbSourceRedraw(0)
+  " Do not erase Ex output, hit-enter prompts, completion menus or selections.
+  " Leave source updates pending until Vim is back in Normal mode.
+  if a:timer != 0 && mode(1) !~# '^n'
+    return
   endif
   if !empty($IPDB_VIM_CLOSE) && filereadable($IPDB_VIM_CLOSE)
     call timer_stop(g:ipdb_source_timer)
@@ -150,4 +151,4 @@ if !empty($IPDB_TMUX_SOCKET)
   nnoremap <silent> <C-w>l :call IpdbWindowMove('l')<CR>
 endif
 
-command! IpdbViewInfo echo {'term': $TERM, 'vim': v:version, 'size': [&lines, &columns], 'view': winsaveview(), 'lazyredraw': &lazyredraw, 'ttyscroll': &ttyscroll, 'background_erase': &t_ut}
+command! IpdbViewInfo echomsg {'term': $TERM, 'vim': v:version, 'size': [&lines, &columns], 'view': winsaveview(), 'lazyredraw': &lazyredraw, 'ttyscroll': &ttyscroll, 'background_erase': &t_ut}

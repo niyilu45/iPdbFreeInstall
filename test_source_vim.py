@@ -82,6 +82,12 @@ call assert_equal('a', &mouse)
 call assert_equal(0, &ttyscroll)
 call assert_equal('', &t_ut)
 call assert_equal(0, &lazyredraw)
+let initial_buffer = bufnr('%')
+call IpdbSourcePoll(1)
+call assert_equal(initial_buffer, bufnr('%'))
+call assert_equal('', expand('%'))
+IpdbViewInfo
+call assert_match('background_erase', execute('messages'))
 call IpdbSourcePoll(0)
 call assert_equal(2, line('.'))
 vsplit
@@ -131,7 +137,7 @@ let still = win_getid()
 wincmd h
 normal! G
 call assert_equal(200, line('.'))
-call assert_equal(1, IpdbSourceRedraw(1))
+call assert_equal(0, IpdbSourceRedraw(1))
 call assert_true(winsaveview().topline > 1)
 call win_gotoid(still)
 call assert_equal(1, line('.'))
