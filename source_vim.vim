@@ -218,6 +218,10 @@ if !empty($IPDB_TMUX_SOCKET)
   nnoremap <silent> <C-w>j :call IpdbWindowMove('j')<CR>
   nnoremap <silent> <C-w>k :call IpdbWindowMove('k')<CR>
   nnoremap <silent> <C-w>l :call IpdbWindowMove('l')<CR>
+  nnoremap <silent> <C-w><C-h> :call IpdbWindowMove('h')<CR>
+  nnoremap <silent> <C-w><C-j> :call IpdbWindowMove('j')<CR>
+  nnoremap <silent> <C-w><C-k> :call IpdbWindowMove('k')<CR>
+  nnoremap <silent> <C-w><C-l> :call IpdbWindowMove('l')<CR>
 endif
 
 command! IpdbViewInfo echomsg string({'term': $TERM, 'vim': v:version, 'size': [&lines, &columns], 'view': winsaveview(), 'lazyredraw': &lazyredraw, 'ttyscroll': &ttyscroll, 'background_erase': &t_ut})

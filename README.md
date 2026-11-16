@@ -550,6 +550,8 @@ windows; at an edge they move to the neighboring tmux pane. Ctrl-B k/j still
 works. In the debugger pane Ctrl-W Ctrl-W sends the original Ctrl-W character
 (backward word deletion). These tmux mappings are session-local and do not
 change user configuration. Windows Terminal uses its own pane keys.
+Holding Ctrl while pressing h/j/k/l also works. The tmux status bar shows
+VIM or IPDB from the active pane immediately, independent of window renaming.
 
 After saving with :w, enter r (or run) at the ipdb prompt to restart using the
 saved script. Newly imported Python modules under the entry script's directory

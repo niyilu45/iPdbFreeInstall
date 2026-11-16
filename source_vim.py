@@ -247,6 +247,10 @@ def Run(arguments):
                 raise RuntimeError(ready)
             Tmux('split-window', '-v', '-l', str(max(3, size.lines // 2)), '-t', 'debug:0.0', Shell([sys.executable, base / 'source_vim.py', '--worker', root / 'config.json']))
             Tmux('set-option', '-t', 'debug', 'mouse', 'on')
+            # Show actual focus, not the asynchronously renamed window command.
+            Tmux('set-window-option', '-t', 'debug:0', 'automatic-rename', 'off')
+            Tmux('set-window-option', '-t', 'debug:0', 'window-status-current-format',
+                 '#I:#{?#{==:#{pane_id},' + source_id + '},VIM,IPDB}#F')
             mouse_action = 'select-pane -t = ; switch-client -T root ; if-shell -F "#{pane_in_mode}" "send-keys -X cancel" ; send-keys -M'
             Tmux('bind-key', '-n', 'MouseDown1Pane', mouse_action)
             Tmux('bind-key', '-T', 'ipdb-nav', 'MouseDown1Pane', mouse_action)
@@ -262,6 +266,7 @@ def Run(arguments):
                 Tmux('bind-key', '-T', 'ipdb-nav', key, 'run-shell ' + shlex.quote(ResizeCommand(key)) + ' ; switch-client -T root')
             for key, direction in (('h', '-L'), ('j', '-D'), ('k', '-U'), ('l', '-R')):
                 Tmux('bind-key', '-T', 'ipdb-nav', key, 'select-pane ' + direction + ' ; switch-client -T root')
+                Tmux('bind-key', '-T', 'ipdb-nav', 'C-' + key, 'select-pane ' + direction + ' ; switch-client -T root')
             Tmux('bind-key', '-T', 'ipdb-nav', 'C-w', 'send-keys C-w ; switch-client -T root')
             Tmux('select-pane', '-t', 'debug:0.1')
             code = subprocess.call(command + ['attach-session', '-t', 'debug'], env=environment)
