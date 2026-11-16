@@ -167,8 +167,9 @@ Limits:
   libraries) also cause checkpoint creation to be refused.
 - IPython's background history writer is stopped before the first fork;
   persistent IPython history is then disabled for this session.
-- A restored checkpoint is consumed. Newer checkpoints are discarded;
-  earlier checkpoints remain. Create another checkpoint to save again.
+- Restoring a checkpoint keeps all checkpoints available. Use restart 1,
+  restart 2, then restart 1 again to revisit their original saved states.
+  Only delete checkpoint ID, quitting, or restarting the script clears them.
 - Python debugger state, including breakpoints, is restored with the process.
   This differs from GDB, which keeps debugger state separate.
 - Files, file offsets, sockets, subprocesses, shared memory, external writes,
@@ -181,10 +182,9 @@ Limits:
   independently launched Python process; launch via ipdb.sh instead.
 
 Local tests cover bt/frame numbering, conditional breakpoint execution,
-variable assignment, and command translation. Linux fork restoration and
-terminal integration tests are included in CI, but have not been verified
-in the Windows development environment. Treat checkpoints as experimental
-until those tests pass on the target Linux/Python combination.
+variable assignment, and command translation. WSL tests also exercise repeated
+checkpoint switching, saved values and execution positions, deletion, and
+terminal exit. These regression tests are included in Linux CI.
 
 ## Automatic expression display
 

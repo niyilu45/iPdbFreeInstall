@@ -261,7 +261,7 @@ def Install():
             self.error(str(error))
 
     def Checkpoint(self, argument):
-        """Save a single-use Linux fork checkpoint of this paused session."""
+        """Save a reusable Linux fork checkpoint of this paused session."""
         from checkpoints import Manager
         if argument:
             self.error('Usage: checkpoint')

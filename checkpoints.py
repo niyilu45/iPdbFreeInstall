@@ -2,31 +2,55 @@
 import json
 import os
 import signal
+import socket
+import tempfile
 import sys
 import threading
 
 
 class Checkpoints:
     def __init__(self):
-        self.entries = {}
-        self.next_id = 1
+        self.directory = None
         self.supervised = False
 
+    def Read(self):
+        if self.directory is None:
+            return {'entries': {}, 'next_id': 1}
+        with open(os.path.join(self.directory, 'registry.json')) as stream:
+            return json.load(stream)
+
+    def Write(self, registry):
+        path = os.path.join(self.directory, 'registry.json')
+        with open(path + '.tmp', 'w') as stream:
+            json.dump(registry, stream)
+        os.replace(path + '.tmp', path)
+
+    @property
+    def entries(self):
+        return {int(key): value for key, value in self.Read()['entries'].items()}
+
+    @property
+    def next_id(self):
+        return self.Read()['next_id']
+
     def Send(self, entry, message):
-        data = (json.dumps(message) + '\n').encode('ascii')
-        while data:
-            data = data[os.write(entry['fd'], data):]
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
+            connection.connect(entry['socket'])
+            connection.sendall((json.dumps(message) + '\n').encode('ascii'))
+            reply = connection.makefile('rb').readline()
+            if reply != b'OK\n':
+                raise OSError('Checkpoint request failed: ' + reply.decode('ascii', 'replace').strip())
 
     def Delete(self, number):
-        if number not in self.entries:
+        registry = self.Read()
+        entry = registry['entries'].pop(str(number), None)
+        if entry is None:
             raise ValueError('Unknown checkpoint {}'.format(number))
-        entry = self.entries.pop(number)
         try:
             self.Send(entry, {'action': 'delete'})
-        except BrokenPipeError:
+        except (BrokenPipeError, ConnectionRefusedError, FileNotFoundError):
             pass
-        finally:
-            os.close(entry['fd'])
+        self.Write(registry)
 
     def Cleanup(self):
         for number in list(self.entries):
@@ -51,56 +75,68 @@ class Checkpoints:
             raise ValueError('Checkpoint refused: other Python or native threads are active')
         sys.stdout.flush()
         sys.stderr.flush()
-        number = self.next_id
-        self.next_id += 1
-        read_fd, write_fd = os.pipe()
+        registry = self.Read()
+        number = registry['next_id']
+        address = os.path.join(self.directory, str(number) + '.sock')
+        listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        listener.bind(address)
+        listener.listen(1)
+        registry['next_id'] += 1
+        registry['entries'][str(number)] = {
+            'socket': address, 'pid': os.getpid(),
+            'file': debugger.curframe.f_code.co_filename,
+            'line': debugger.curframe.f_lineno}
+        self.Write(registry)
         try:
             child = os.fork()
         except BaseException:
-            os.close(read_fd)
-            os.close(write_fd)
+            listener.close()
+            os.unlink(address)
+            del registry['entries'][str(number)]
+            registry['next_id'] = number
+            self.Write(registry)
             raise
-        if child:
-            # This process is the frozen snapshot. The child keeps debugging.
-            os.close(write_fd)
-            previous = signal.signal(signal.SIGINT, signal.SIG_IGN)
-            data = b''
-            while b'\n' not in data:
-                chunk = os.read(read_fd, 4096)
-                if not chunk:
-                    os._exit(0)
-                data += chunk
-            message = json.loads(data.decode('ascii'))
-            os.close(read_fd)
-            if message['action'] == 'delete':
-                os._exit(0)
-            # Restart abandons the continuation descended from this snapshot.
-            # Reap its direct child before returning to the saved prompt.
-            os.waitpid(child, 0)
-            signal.signal(signal.SIGINT, previous)
-            keep = message['keep']
-            for old in list(self.entries):
-                if old not in keep:
-                    os.close(self.entries.pop(old)['fd'])
-            self.next_id = message['next_id']
-            debugger.message('Restored checkpoint {} (consumed)'.format(number))
-            debugger.print_stack_entry(debugger.stack[debugger.curindex])
+        if child == 0:
+            listener.close()
+            debugger.message('Checkpoint {} created'.format(number))
             return
-        os.close(read_fd)
-        self.entries[number] = {'fd': write_fd, 'pid': os.getppid(),
-                                'file': debugger.curframe.f_code.co_filename,
-                                'line': debugger.curframe.f_lineno}
-        debugger.message('Checkpoint {} created'.format(number))
+        # Keep this memory image frozen. Every activation forks a fresh copy.
+        previous = signal.signal(signal.SIGINT, signal.SIG_IGN)
+        child_signal = signal.signal(signal.SIGCHLD, signal.SIG_IGN)
+        while True:
+            connection, _ = listener.accept()
+            with connection:
+                message = json.loads(connection.makefile('rb').readline().decode('ascii'))
+                if message['action'] == 'delete':
+                    listener.close()
+                    os.unlink(address)
+                    connection.sendall(b'OK\n')
+                    os._exit(0)
+                try:
+                    restored = os.fork()
+                except OSError as error:
+                    connection.sendall(('ERROR: ' + str(error) + '\n').encode('ascii', 'replace'))
+                    continue
+                if restored:
+                    connection.sendall(b'OK\n')
+                    continue
+                # Wait for the old active process to release the connection
+                # before returning to the prompt and reading terminal input.
+                while connection.recv(1):
+                    pass
+                connection.close()
+                listener.close()
+                signal.signal(signal.SIGINT, previous)
+                signal.signal(signal.SIGCHLD, child_signal)
+                debugger.message('Restored checkpoint {}'.format(number))
+                debugger.print_stack_entry(debugger.stack[debugger.curindex])
+                return
 
     def Restart(self, number):
-        if number not in self.entries:
+        target = self.entries.get(number)
+        if target is None:
             raise ValueError('Unknown checkpoint {}'.format(number))
-        for later in sorted(list(self.entries), reverse=True):
-            if later > number:
-                self.Delete(later)
-        target = self.entries[number]
-        self.Send(target, {'action': 'restart', 'next_id': self.next_id,
-                           'keep': [key for key in self.entries if key < number]})
+        self.Send(target, {'action': 'restart'})
         os._exit(0)
 
 
@@ -111,6 +147,9 @@ def Supervise(callback):
     """Keep the terminal session leader alive across snapshot activation."""
     if not sys.platform.startswith('linux'):
         return callback()
+    directory = tempfile.TemporaryDirectory(prefix='ipdb-check-')
+    Manager.directory = directory.name
+    Manager.Write({'entries': {}, 'next_id': 1})
     read_fd, write_fd = os.pipe()
     child = os.fork()
     if child == 0:
@@ -145,6 +184,8 @@ def Supervise(callback):
     finally:
         os.close(read_fd)
         signal.signal(signal.SIGINT, previous)
+        directory.cleanup()
+        Manager.directory = None
     if data:
         return int(data)
     return os.WEXITSTATUS(status) if os.WIFEXITED(status) else 128 + os.WTERMSIG(status)

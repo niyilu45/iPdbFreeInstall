@@ -185,7 +185,7 @@ def Run():
     Manager.Create(debug)
     if debug.restored:
         assert value == [1], value
-        assert not Manager.entries
+        assert list(Manager.entries) == [1]
         assert Manager.next_id == 2
         print('CHECKPOINT_RESTORED')
         return
@@ -199,6 +199,113 @@ sys.exit(Supervise(Run))
                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=20)
         self.assertEqual(result.returncode, 0, result.stderr.decode())
         self.assertIn(b'CHECKPOINT_RESTORED', result.stdout)
+
+
+    @unittest.skipUnless(sys.platform.startswith('linux'), 'Linux fork required')
+    def test_checkpoint_switches_preserve_all_snapshots(self):
+        root = Path(__file__).resolve().parent
+        code = r'''
+import sys
+import tempfile
+from pathlib import Path
+from types import SimpleNamespace
+import portable_ipdb
+from checkpoints import Manager, Supervise
+
+with tempfile.TemporaryDirectory() as directory:
+    stage = Path(directory) / 'stage'
+    stage.write_text('0')
+    def Run():
+        value = [1]
+        frame = sys._getframe()
+        debug = SimpleNamespace(curframe=frame, stack=[(frame, frame.f_lineno)], curindex=0, restored=False)
+        def Message(text):
+            if text.startswith('Restored'):
+                debug.restored = True
+        debug.message = Message
+        debug.print_stack_entry = lambda entry: None
+        def Verify(number):
+            index = int(stage.read_text())
+            expected = [(1, [1]), (2, [1, 2]), (1, [1]), (2, [1, 2])]
+            assert (number, value) == expected[index], (number, value, index)
+            assert sorted(Manager.entries) == [1, 2]
+            assert Manager.next_id == 3
+            if index < 3:
+                value.append(99)
+                stage.write_text(str(index + 1))
+                Manager.Restart(expected[index + 1][0])
+            Manager.Create(debug)
+            assert sorted(Manager.entries) == [1, 2, 3]
+            assert Manager.next_id == 4
+            Manager.Delete(1)
+            Manager.Delete(2)
+            assert list(Manager.entries) == [3]
+            try:
+                Manager.Restart(1)
+                raise AssertionError('Deleted checkpoint restored')
+            except ValueError:
+                pass
+            Manager.Cleanup()
+            assert not Manager.entries
+            print('REPEATED_SWITCHES_PASSED')
+        Manager.Create(debug)
+        if debug.restored:
+            Verify(1)
+            return
+        value.append(2)
+        Manager.Create(debug)
+        if debug.restored:
+            Verify(2)
+            return
+        value.append(3)
+        Manager.Restart(1)
+    sys.exit(Supervise(Run))
+'''
+        result = subprocess.run([sys.executable, '-B', '-c', code], cwd=str(root),
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=20)
+        self.assertEqual(result.returncode, 0, result.stderr.decode())
+        self.assertIn(b'REPEATED_SWITCHES_PASSED', result.stdout)
+
+    @unittest.skipUnless(sys.platform.startswith('linux'), 'Linux terminal required')
+    def test_checkpoint_terminal_round_trip(self):
+        import pexpect
+        root = Path(__file__).resolve().parent
+        with tempfile.TemporaryDirectory() as directory:
+            script = Path(directory) / 'sample.py'
+            script.write_text('value = 10\nvalue = 20\nvalue = 30\nprint(value)\n')
+            child = pexpect.spawn(sys.executable,
+                ['-B', str(root / 'portable_ipdb.py'), '--plain', str(script)],
+                env=dict(os.environ, TERM='dumb', IPYTHONDIR=directory),
+                encoding='utf-8', timeout=10)
+            def Command(command):
+                child.sendline(command)
+                child.expect_exact('ipdb> ')
+                return child.before
+            try:
+                child.expect_exact('ipdb> ')
+                Command('n')
+                self.assertIn('Checkpoint 1 created', Command('check'))
+                Command('n')
+                self.assertIn('Checkpoint 2 created', Command('check'))
+                for number, value, line in [(1, 10, 2), (2, 20, 3), (1, 10, 2), (2, 20, 3)]:
+                    self.assertIn('Restored checkpoint {}'.format(number), Command('res {}'.format(number)))
+                    self.assertIn('VALUE={}'.format(value), Command('!print("VALUE=" + str(value))'))
+                    self.assertIn('sample.py:{}'.format(line), Command('i check'))
+                Command('del check 1')
+                self.assertIn('Unknown checkpoint 1', Command('res 1'))
+                self.assertIn('Restored checkpoint 2', Command('res 2'))
+                Command('r')
+                self.assertIn('No checkpoints', Command('i check'))
+                self.assertIn('Unknown checkpoint 2', Command('res 2'))
+                self.assertIn('Checkpoint 3 created', Command('check'))
+                child.sendline('q')
+                child.expect(pexpect.EOF)
+                child.close()
+                self.assertEqual(child.exitstatus, 0)
+            finally:
+                if child.isalive():
+                    child.sendline('q')
+                child.close(force=True)
 
 
 if __name__ == '__main__':
