@@ -182,6 +182,17 @@ function! IpdbSourcePoll(timer) abort
         let &l:autoread = saved_autoread
       endtry
     endif
+    " Timer-driven first loads may miss filetype/syntax autocommands.
+    " Repair only missing buffer state; preserve user syntax and colors.
+    if empty(&l:filetype)
+      filetype detect
+      if empty(&l:filetype) && state.file =~# '\.pyw\?$'
+        setfiletype python
+      endif
+    endif
+    if has('syntax') && !empty(&l:filetype) && !exists('b:current_syntax')
+      let &l:syntax = empty(&l:syntax) ? &l:filetype : &l:syntax
+    endif
     call cursor(state.line, 1)
     normal! zvzz
     silent! sign unplace 7351
