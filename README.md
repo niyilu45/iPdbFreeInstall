@@ -656,6 +656,15 @@ version and loaded script paths. It does not upload anything or run background
 diagnostics. This lets a report include the actual rendering state without a
 screenshot; the file contains the visible source code.
 
+If files cannot be shared and focusing Vim clears the defect, stay at the ipdb
+prompt and run `viewcheck start`. Switch to Vim and back without typing, moving
+the cursor or resizing, then run `viewcheck end`. Only report the short result:
+R1 means captured source text changed; R2 means only terminal styles changed;
+R3 means both stayed identical (investigate the tmux client/outer terminal);
+R4 means the comparison was invalidated by a pane/size change; R0 is a capture
+error. These codes locate a rendering layer, not a confirmed root cause. The
+snapshots stay in debugger memory and exclude the bottom two status/command rows.
+
 The source checkout includes `repro_source_render.py` for Linux. It generates
 long/short source rows and a cross-file call, drives the actual launcher, and
 retains each tmux screen plus a JSON result list. Use a new output directory:

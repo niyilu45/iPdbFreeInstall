@@ -18,10 +18,59 @@ def Publish(path, filename, line):
     os.replace(temporary, str(path))
 
 
+def ViewCode(before, after):
+    if before['pane'] != after['pane'] or before['size'] != after['size']:
+        return 'R4'
+    if before['text'] != after['text']:
+        return 'R1'
+    if before['style'] != after['style']:
+        return 'R2'
+    return 'R3'
+
+
+def CaptureView():
+    command = [os.environ['IPDB_TMUX_BIN'], '-L', os.environ['IPDB_TMUX_SOCKET']]
+    def Call(*arguments):
+        return subprocess.check_output(command + list(arguments), stderr=subprocess.PIPE, universal_newlines=True)
+    panes = Call('list-panes', '-t', os.environ['TMUX_PANE'], '-F', '#{pane_index} #{pane_id}')
+    pane = next(line.split()[1] for line in panes.splitlines() if line.split()[0] == '0')
+    size = Call('display-message', '-p', '-t', pane, '#{pane_width}x#{pane_height}').strip()
+    # Ignore Vim's command/status rows, which can change on a focus switch.
+    text = Call('capture-pane', '-p', '-t', pane).splitlines()[:-2]
+    style = Call('capture-pane', '-p', '-e', '-t', pane).splitlines()[:-2]
+    return {'pane': pane, 'size': size, 'text': text, 'style': style}
+
+
 def InstallHook(path):
     from IPython.core.debugger import Pdb
     original = Pdb.print_stack_entry
     original_where = Pdb.do_where
+
+    def ViewCheck(self, argument):
+        """viewcheck start|end: compare source cells across a manual focus switch."""
+        action = argument.strip()
+        if action not in ('start', 'end'):
+            self.message('Usage: viewcheck start; switch to Vim and back without moving; viewcheck end')
+            return
+        try:
+            snapshot = CaptureView()
+        except (KeyError, OSError, subprocess.CalledProcessError, StopIteration) as error:
+            self.error('R0: Cannot capture source pane ({})'.format(type(error).__name__))
+            return
+        if action == 'start':
+            self._portable_view_before = snapshot
+            self.message('S0: Captured. Switch to Vim and back without typing or resizing, then run viewcheck end.')
+            return
+        before = getattr(self, '_portable_view_before', None)
+        if before is None:
+            self.error('R0: Run viewcheck start while the defect is visible first.')
+            return
+        code = ViewCode(before, snapshot)
+        meanings = {'R1': 'tmux source text changed', 'R2': 'text unchanged; terminal styles changed',
+                    'R3': 'tmux text and styles unchanged; compare client rendering',
+                    'R4': 'pane or size changed; repeat without resizing'}
+        self.message('{}: {}'.format(code, meanings[code]))
+        self._portable_view_before = None
 
     def StackEntry(self, frame_lineno, *args, **kwargs):
         if getattr(self, '_portable_vim_explicit_stack', False):
@@ -46,6 +95,7 @@ def InstallHook(path):
     Pdb.print_stack_entry = StackEntry
     Pdb.do_where = Where
     Pdb.do_w = Where
+    Pdb.do_viewcheck = ViewCheck
 
 
 def Shell(arguments):

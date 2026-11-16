@@ -13,6 +13,14 @@ from source_vim import Publish, Shell
 
 
 class VimTests(unittest.TestCase):
+    def test_focus_diagnostic_codes(self):
+        from source_vim import ViewCode
+        before = {'pane': '%0', 'size': '234x34', 'text': ['code'], 'style': ['styled code']}
+        self.assertEqual(ViewCode(before, dict(before)), 'R3')
+        self.assertEqual(ViewCode(before, dict(before, text=['new code'])), 'R1')
+        self.assertEqual(ViewCode(before, dict(before, style=['other style'])), 'R2')
+        self.assertEqual(ViewCode(before, dict(before, size='234x33')), 'R4')
+
     def test_mode_and_safe_arguments(self):
         self.assertEqual(SelectMode(['--source-vim', 'my file.py']), ('source-vim', ['my file.py']))
         values = ['python', '/tmp/a b.py', "quote'and$(literal)"]
@@ -288,6 +296,17 @@ qa!
                 os.write(master, b'p val\t\n')
                 WaitFor(b'41')
                 self.assertNotIn(b'NameError', output)
+                time.sleep(0.2)
+                output.clear()
+                os.write(master, b'viewcheck start\n')
+                WaitFor(b'S0:')
+                os.write(master, b'\x17k')
+                time.sleep(0.2)
+                os.write(master, b'\x17j')
+                time.sleep(0.2)
+                output.clear()
+                os.write(master, b'viewcheck end\n')
+                WaitFor(b'R3:')
                 script.write_text('# saved edit\nvalue = 41\nprint("NEW_RESULT", value + 1)\n')
                 output.clear()
                 os.write(master, b'r\n')
