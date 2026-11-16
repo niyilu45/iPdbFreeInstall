@@ -222,7 +222,9 @@ def Run(arguments):
         return result.stdout.strip()
     if os.environ.get('IPDB_VIM_CLEAN') == '1':
         print('[ipdb] Diagnostic mode: user vimrc and plugins disabled for this session.', flush=True)
-    print('[ipdb] Starting system Vim with your vimrc and plugins; Ctrl-B then k/j switches Vim/ipdb.', flush=True)
+        print('[ipdb] To restore your configuration, launch with IPDB_VIM_CLEAN=0.', flush=True)
+    else:
+        print('[ipdb] Starting system Vim with your vimrc and plugins; Ctrl-B then k/j switches Vim/ipdb.', flush=True)
     with tempfile.TemporaryDirectory(prefix='ipdb-vim-') as directory:
         root = Path(directory)
         environment['IPDB_TMUX_BIN'] = tmux

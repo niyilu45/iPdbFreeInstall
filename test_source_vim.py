@@ -103,6 +103,7 @@ class VimTests(unittest.TestCase):
             script = root / 'test.vim'
             script.write_text('''execute 'source ' . fnameescape($IPDB_BRIDGE)
 call assert_equal(42, get(g:, 'portable_test_plugin', 0))
+call assert_true(exists('g:syntax_on'))
 call assert_equal('a', &mouse)
 call assert_equal(0, &ttyscroll)
 call assert_equal('', &t_ut)
@@ -149,6 +150,7 @@ call assert_equal(other, win_getid())
 call assert_equal(oldbuffer, bufnr('%'))
 call win_gotoid(win_getid(1, 1))
 call assert_equal(fnamemodify($IPDB_NEW_SOURCE, ':p'), expand('%:p'))
+call assert_equal('python', &syntax)
 call assert_equal(2, line('.'))
 only
 call writefile(['# saved edit', 'def helper():', '    return 99'], $IPDB_NEW_SOURCE)
@@ -276,8 +278,15 @@ qa!
             master, slave = pty.openpty()
             fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 40, 120, 0, 0))
             launcher = Path(__file__).with_name('ipdbVim.sh').resolve()
+            binary = root / 'bin'
+            binary.mkdir()
+            refresh_log = root / 'refresh.log'
+            wrapper = binary / 'tmux'
+            wrapper.write_text('#!/bin/sh\ncase " $* " in\n*" refresh-client "*) printf "refresh\\n" >> ' + shlex.quote(str(refresh_log)) + ';;\nesac\nexec ' + shlex.quote(shutil.which('tmux')) + ' "$@"\n')
+            wrapper.chmod(0o755)
             process = subprocess.Popen(['sh', str(launcher), str(script)], stdin=slave, stdout=slave, stderr=slave,
-                env=dict(os.environ, TERM='xterm', HOME=directory, IPYTHONDIR=directory, IPDB_PYTHON=sys.executable))
+                env=dict(os.environ, TERM='xterm', HOME=directory, IPYTHONDIR=directory, IPDB_PYTHON=sys.executable,
+                         PATH=str(binary) + os.pathsep + os.environ['PATH'], IPDB_VIM_CLIENT_REFRESH='1'))
             output = bytearray()
             def WaitFor(needle):
                 deadline = time.monotonic() + 30
@@ -297,6 +306,14 @@ qa!
                 output.clear()
                 os.write(master, b'\x17k')
                 time.sleep(0.2)
+                count = len(refresh_log.read_text().splitlines()) if refresh_log.exists() else 0
+                os.write(master, b'G')
+                time.sleep(0.25)
+                self.assertTrue(refresh_log.exists())
+                refreshed = len(refresh_log.read_text().splitlines())
+                self.assertGreater(refreshed, count, 'Source navigation must request a client repaint')
+                time.sleep(0.2)
+                self.assertEqual(len(refresh_log.read_text().splitlines()), refreshed, 'Idle sessions must not repaint repeatedly')
                 os.write(master, b'\x17j')
                 time.sleep(0.2)
                 os.write(master, b'n\n')

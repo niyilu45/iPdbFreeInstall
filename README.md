@@ -649,6 +649,18 @@ normal launcher continues loading your configuration. If captured tmux content
 contains stale code, comparing this mode with the normal mode helps isolate
 configuration/plugin interactions from the bridge and terminal stream.
 
+Normal system-Vim startup retains your vimrc and plugins and enables syntax
+highlighting when it is not already enabled, without resetting the color scheme.
+To leave clean diagnostic mode explicitly, use
+`env IPDB_VIM_CLEAN=0 ./ipdbVim.sh my.py`.
+
+The tmux source view now requests a client repaint after source redraws. Requests
+are delayed/coalesced during navigation and use the resolved tmux executable,
+without changing focus or the source viewport. Idle views do not poll for client
+repaints. This is a compatibility workaround for residue cleared by an explicit
+client refresh; the affected remote environment still needs confirmation.
+Set `IPDB_VIM_CLIENT_REFRESH=0` only to compare behavior without the workaround.
+
 For a stale screen, run `:IpdbViewDump /tmp/ipdb-view.json` in the affected Vim
 window before paging or redrawing. The local JSON records Vim's cached screen,
 tmux's captured pane, visible source, viewport, terminal capabilities, exact Vim

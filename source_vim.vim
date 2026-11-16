@@ -3,6 +3,10 @@ if !exists('*timer_start') || !exists('*json_decode') || !exists('*win_getid')
   call writefile(['System Vim requires timers, JSON and window IDs'], $IPDB_VIM_READY)
   finish
 endif
+" Enable syntax by default without resetting an existing color scheme.
+if has('syntax') && !exists('g:syntax_on')
+  syntax enable
+endif
 " Route clicks to the corresponding Vim window instead of terminal selection.
 set mouse=a
 " Avoid terminal line-scroll and background-erase optimizations in tmux.
@@ -24,6 +28,31 @@ let s:screen_layout = ''
 let s:redraw_timer = -1
 let s:redrawing = 0
 let s:force_redraw = 0
+let s:client_refresh_timer = -1
+let s:client_refresh_job = v:null
+function! IpdbRefreshClient(timer) abort
+  let s:client_refresh_timer = -1
+  if exists('*job_status') && type(s:client_refresh_job) == v:t_job && job_status(s:client_refresh_job) ==# 'run'
+    let s:client_refresh_timer = timer_start(30, function('IpdbRefreshClient'))
+    return
+  endif
+  let command = [$IPDB_TMUX_BIN, '-L', $IPDB_TMUX_SOCKET, 'refresh-client']
+  if exists('*job_start')
+    let s:client_refresh_job = job_start(command, {'out_io': 'null', 'err_io': 'null'})
+  else
+    call system(join(map(copy(command), 'shellescape(v:val)'), ' ') . ' 2>/dev/null')
+  endif
+endfunction
+function! IpdbQueueClientRefresh() abort
+  if empty($IPDB_TMUX_SOCKET) || empty($IPDB_TMUX_BIN) || $IPDB_VIM_CLIENT_REFRESH ==# '0'
+    return
+  endif
+  if s:client_refresh_timer != -1
+    call timer_stop(s:client_refresh_timer)
+  endif
+  " Run after Vim flushes its drawing commands; coalesce rapid navigation.
+  let s:client_refresh_timer = timer_start(30, function('IpdbRefreshClient'))
+endfunction
 function! IpdbViewSignature() abort
   let view = winsaveview()
   return string([win_getid(), bufnr('%'), b:changedtick, view,
@@ -43,6 +72,7 @@ function! IpdbSourceRedraw(force) abort
     try
       if has('gui_running') || (has('ttyin') && has('ttyout'))
         redraw!
+        call IpdbQueueClientRefresh()
       endif
       let s:screen_layout = IpdbViewSignature()
     finally
