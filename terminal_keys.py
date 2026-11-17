@@ -140,6 +140,9 @@ def ConfigureInput():
         readline.parse_and_bind('"\\C-p": previous-history')
         readline.parse_and_bind('"\\C-n": next-history')
         readline.parse_and_bind('"\\C-l": redraw-current-line')
+        # Repaint the prompt and existing input when tmux returns terminal focus.
+        readline.parse_and_bind('"\\e[I": redraw-current-line')
+        readline.parse_and_bind('"\\e[O": ""')
     except ImportError:
         pass
     # This module can have been imported before the child environment changed.
@@ -156,10 +159,18 @@ def ConfigureInput():
         return Pdb
 
     ipdb_main._get_debugger_cls = SimpleDebuggerClass
+    import os
+    if os.environ.get('IPDB_TMUX_SOCKET'):
+        sys.stdout.write('\x1b[?1004h')
+        sys.stdout.flush()
     return saved
 
 
 def RestoreInput(saved):
     import sys
     import termios
+    import os
+    if os.environ.get('IPDB_TMUX_SOCKET'):
+        sys.stdout.write('\x1b[?1004l')
+        sys.stdout.flush()
     termios.tcsetattr(sys.stdin.fileno(), termios.TCSADRAIN, saved)

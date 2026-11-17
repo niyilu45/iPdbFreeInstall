@@ -247,6 +247,7 @@ def Run(arguments):
                 raise RuntimeError(ready)
             Tmux('split-window', '-v', '-l', str(max(3, size.lines // 2)), '-t', 'debug:0.0', Shell([sys.executable, base / 'source_vim.py', '--worker', root / 'config.json']))
             Tmux('set-option', '-t', 'debug', 'mouse', 'on')
+            Tmux('set-option', '-g', 'focus-events', 'on')
             # Show actual focus, not the asynchronously renamed window command.
             Tmux('set-window-option', '-t', 'debug:0', 'automatic-rename', 'off')
             Tmux('set-window-option', '-t', 'debug:0', 'window-status-current-format',

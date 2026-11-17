@@ -146,6 +146,15 @@ class FocusTests(unittest.TestCase):
                 Wait(lambda: Active() == '0', 'source before immediate input')
                 os.write(master, b'\x17j!print(731924)\n')
                 Wait(lambda: b'731924\r\n' in output, 'immediate command lost', 3)
+                # Check visible echo separately from eventual command execution.
+                for first in (b'p', b'!', b'b'):
+                    os.write(master, b'\x17k')
+                    Wait(lambda: Active() == '0', 'source before first-character echo')
+                    os.write(master, b'\x17j' + first)
+                    Wait(lambda: Active() == '1' and ('ipdb> ' + first.decode()) in [row.rstrip() for row in Call('capture-pane', '-p', '-t', 'debug:0.1').splitlines()],
+                         'first character missing from command display', 3)
+                    os.write(master, b'\x15')
+                    time.sleep(0.05)
                 os.write(master, b'q\n')
                 Wait(lambda: b'Press Enter' in output, 'exit prompt')
                 os.write(master, b'\n')
