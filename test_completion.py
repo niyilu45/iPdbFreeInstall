@@ -95,5 +95,24 @@ class CompletionTests(unittest.TestCase):
         self.assertIsNone(self.Complete('break sample'))
 
 
+class BufferCompletionTests(unittest.TestCase):
+    def test_vim_python_buffers(self):
+        import tempfile
+        import json
+        import os
+        from pathlib import Path
+        from unittest import mock
+        from completion import BufferMatches
+        with tempfile.TemporaryDirectory() as directory:
+            state = str(Path(directory) / 'state')
+            path = str(Path(directory) / 'helper.py')
+            Path(state + '.buffers').write_text(json.dumps([path, path, str(Path(directory) / 'notes.txt')]))
+            with mock.patch.dict(os.environ, {'IPDB_VIM_STATE': state}):
+                self.assertEqual(BufferMatches('help'), [os.path.relpath(path)])
+                self.assertEqual(BufferMatches('notes'), [])
+                Path(state + '.buffers').write_text('invalid')
+                self.assertEqual(BufferMatches('help'), [])
+
+
 if __name__ == '__main__':
     unittest.main()

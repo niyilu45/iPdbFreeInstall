@@ -3,6 +3,27 @@ import builtins
 import inspect
 import re
 import os
+import json
+
+
+def BufferMatches(text):
+    state = os.environ.get('IPDB_VIM_STATE')
+    if not state:
+        return []
+    try:
+        with open(state + '.buffers', encoding='utf-8') as stream:
+            files = json.load(stream)
+        matches = []
+        for path in files:
+            if not isinstance(path, str) or not path.endswith('.py'):
+                continue
+            relative = os.path.relpath(path)
+            candidate = path if os.path.isabs(text) else relative
+            if candidate.startswith(text) or os.path.basename(path).startswith(text):
+                matches.append(candidate)
+        return sorted(set(matches))
+    except (OSError, ValueError, TypeError):
+        return []
 
 
 def ExpressionMatches(debugger, prefix):
@@ -62,6 +83,9 @@ def Matches(debugger, line, begin, end):
     if command in choices and not argument_before_word:
         return [name for name in choices[command] if name.startswith(text)]
     if command in ('break', 'tbreak', 'clear', 'source') and not re.search(r'\sif\s', before):
+        files = BufferMatches(text)
+        if files:
+            return files
         return None  # Retain pdb's filename/line completion where available.
     match = re.search(r'[\w.]+$', before, re.UNICODE)
     prefix = match.group() if match else ''
@@ -90,6 +114,8 @@ def InstallCompletion(debugger_class):
                     # receive the underlying variable list, even on repeated Tab.
                     common = os.path.commonprefix(candidates)
                     self._portable_matches = [common] if common.startswith(text) and len(common) > len(text) else []
+                    if len(candidates) == 1 and candidates[0] in BufferMatches(text) and common != text:
+                        self._portable_matches = [common]
             except Exception:
                 self._portable_matches = []
         candidates = getattr(self, '_portable_matches', None)
