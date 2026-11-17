@@ -104,6 +104,11 @@ class VimTests(unittest.TestCase):
             script.write_text('''execute 'source ' . fnameescape($IPDB_BRIDGE)
 call assert_equal(42, get(g:, 'portable_test_plugin', 0))
 call assert_true(exists('g:syntax_on'))
+call assert_match('IpdbSearchRedraw', execute('autocmd PortableIpdbRedraw CmdlineChanged'))
+let old_search_signature = IpdbViewSignature()
+let @/ = 'search_probe'
+call assert_notequal(old_search_signature, IpdbViewSignature())
+
 call assert_equal('a', &mouse)
 call assert_equal(0, &ttyscroll)
 call assert_equal('', &t_ut)
@@ -126,7 +131,7 @@ call assert_equal(1, &l:cursorline)
 call cursor(2, 1)
 call IpdbExecutionCursor()
 call assert_equal(0, &l:cursorline)
-call assert_equal('IpdbExecution', sign_getdefined('IpdbExecution')[0].linehl)
+call assert_match('linehl=IpdbExecution', execute('sign list IpdbExecution'))
 
 execute 'IpdbViewDump ' . fnameescape($IPDB_TEST_ROOT . '/view-dump.json')
 let diagnostic = json_decode(join(readfile($IPDB_TEST_ROOT . '/view-dump.json'), "\\n"))

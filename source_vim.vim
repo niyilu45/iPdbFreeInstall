@@ -90,10 +90,10 @@ function! IpdbViewSignature() abort
   let view = winsaveview()
   return string([win_getid(), bufnr('%'), b:changedtick, view,
         \ winwidth(0), winheight(0), &wrap, &foldenable, &foldlevel,
-        \ foldclosed(line('.')), foldclosedend(line('.'))])
+        \ foldclosed(line('.')), foldclosedend(line('.')), @/, &hlsearch, v:hlsearch])
 endfunction
 function! IpdbSourceRedraw(force) abort
-  if mode(1) !~# '^n'
+  if mode(1) !~# '^n' && !(mode(1) =~# '^c' && index(['/', '?'], getcmdtype()) >= 0)
     return 0
   endif
   if s:redrawing
@@ -129,11 +129,22 @@ function! IpdbQueueRedraw(...) abort
     let s:redraw_timer = timer_start(10, function('IpdbDeferredRedraw'))
   endif
 endfunction
+function! IpdbSearchRedraw() abort
+  if index(['/', '?'], getcmdtype()) >= 0
+    call IpdbQueueRedraw(1)
+  endif
+endfunction
 augroup PortableIpdbRedraw
   autocmd!
   autocmd CursorMoved,CursorMovedI * call IpdbQueueRedraw()
   autocmd WinEnter,BufWinEnter,VimResized,TabEnter,FocusGained,InsertLeave * call IpdbQueueRedraw(1)
   autocmd TextChanged,TextChangedI * call IpdbQueueRedraw(1)
+  if exists('##CmdlineChanged')
+    autocmd CmdlineChanged * call IpdbSearchRedraw()
+  endif
+  if exists('##CmdlineLeave')
+    autocmd CmdlineLeave * call IpdbSearchRedraw()
+  endif
   if exists('##WinScrolled')
     autocmd WinScrolled * call IpdbQueueRedraw()
   endif
