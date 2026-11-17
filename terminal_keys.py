@@ -70,9 +70,9 @@ class PaneKeys:
         self.started = 0
 
     def Flush(self):
-        if self.pending == b'\x1b' and time.monotonic() - self.started >= 0.15:
-            self.pending = b''
-            return b'\x1b'
+        if self.pending.startswith(b'\x1b') and time.monotonic() - self.started >= 0.15:
+            result, self.pending = self.pending, b''
+            return result
         return b''
 
     def Feed(self, data, enabled, source_height):
@@ -85,8 +85,12 @@ class PaneKeys:
             if self.pending == b'\x17':
                 self.pending = b''
                 direction = chr(value)
+                if value in (8, 10, 11, 12):
+                    direction = chr(value + 96)
                 if direction in 'hjkl':
                     events.append(('focus', direction))
+                else:
+                    events.append(('input', b'\x17' if value == 23 else b'\x17' + bytes([value])))
                 continue
             if self.pending:
                 self.pending += bytes([value])
@@ -104,6 +108,7 @@ class PaneKeys:
                                     events.append(('scroll', ('down' if button & 1 else 'up', column, row)))
                         self.pending = b''
                     elif len(self.pending) > 64 or value not in b'0123456789;':
+                        events.append(('input', self.pending))
                         self.pending = b''
                     continue
                 events.append(('input', self.pending))

@@ -8,6 +8,27 @@ import time
 import unittest
 
 
+class KeyPreservationTests(unittest.TestCase):
+    def test_unknown_window_chord_is_forwarded(self):
+        from terminal_keys import PaneKeys
+        for data in (b'\x17p', b'\x17\t', b'\x17\x7f'):
+            keys = PaneKeys()
+            events = keys.Feed(data[:1], True, 10) + keys.Feed(data[1:], True, 10)
+            self.assertEqual(events, [('input', data)])
+        self.assertEqual(PaneKeys().Feed(b'\x17\x17', True, 10), [('input', b'\x17')])
+
+    def test_held_ctrl_and_partial_escape(self):
+        from terminal_keys import PaneKeys
+        self.assertEqual(PaneKeys().Feed(b'\x17\x0a', True, 10), [('focus', 'j')])
+        keys = PaneKeys()
+        keys.Feed(b'\x1b[', True, 10)
+        keys.started = time.monotonic() - 1
+        self.assertEqual(keys.Flush(), b'\x1b[')
+        self.assertEqual(keys.Feed(b'p', True, 10), [('input', b'p')])
+        self.assertEqual(PaneKeys().Feed(b'\x1b[<1;bad', True, 10),
+                         [('input', b'\x1b[<1;b'), ('input', b'a'), ('input', b'd')])
+
+
 @unittest.skipUnless(sys.platform.startswith('linux'), 'Linux PTY required')
 class InputParityTests(unittest.TestCase):
     def test_plain_and_split_editing(self):
