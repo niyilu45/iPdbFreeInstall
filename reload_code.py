@@ -181,7 +181,7 @@ def Refresh(debugger):
     RefreshBreakpoints(debugger)
     linecache.clearcache()
     from checkpoints import Manager
-    Manager.Cleanup()
+    Manager.Reset()
 
 
 def Install():

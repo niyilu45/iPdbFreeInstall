@@ -56,6 +56,11 @@ class Checkpoints:
         for number in list(self.entries):
             self.Delete(number)
 
+    def Reset(self):
+        self.Cleanup()
+        if self.directory is not None:
+            self.Write({'entries': {}, 'next_id': 1})
+
     def Create(self, debugger):
         if not sys.platform.startswith('linux') or not self.supervised:
             raise ValueError('Checkpoints require the Linux CLI launcher')
