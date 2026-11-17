@@ -82,6 +82,12 @@ class FocusTests(unittest.TestCase):
                 Wait(lambda: b'731922\r\n' in output, 'input after write all', 3)
                 for index in range(1, 26):
                     self.assertEqual((root / ('save{}.py'.format(index))).read_text().strip(), 'value = 1')
+                for search in (b'/value\r', b'?value\r', b'/not_present_48291\r', b'/value\x1b'):
+                    os.write(master, b'\x17k')
+                    Wait(lambda: Active() == '0', 'source before search')
+                    marker = str(915000 + len(output)).encode('ascii')
+                    os.write(master, search + b'\x17j!print(' + marker + b')\n')
+                    Wait(lambda: marker + b'\r\n' in output, 'command lost after search ' + repr(search), 3)
                 for iteration in range(20):
                     os.write(master, b'\x17k')
                     Wait(lambda: Active() == '0', 'first up chord {}'.format(iteration), 1)

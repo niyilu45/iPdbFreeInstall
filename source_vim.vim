@@ -69,7 +69,9 @@ function! IpdbRefreshClient(timer) abort
     let s:client_refresh_timer = timer_start(30, function('IpdbRefreshClient'))
     return
   endif
-  let command = [$IPDB_TMUX_BIN, '-L', $IPDB_TMUX_SOCKET, 'refresh-client']
+  " Never repaint the client over a live debugger/readline prompt.
+  let command = [$IPDB_TMUX_BIN, '-L', $IPDB_TMUX_SOCKET, 'if-shell', '-F',
+        \ '#{==:#{pane_id},' . $TMUX_PANE . '}', 'refresh-client']
   if exists('*job_start')
     let s:client_refresh_job = job_start(command, {'out_io': 'null', 'err_io': 'null'})
   else
@@ -302,6 +304,15 @@ function! IpdbWindowMove(direction) abort
     let tmux = shellescape($IPDB_TMUX_BIN) . ' -L ' . shellescape($IPDB_TMUX_SOCKET)
     let target = trim(system(tmux . ' select-pane ' . direction . ' \; display-message -p "#{pane_id}"'))
     if v:shell_error == 0 && target =~# '^%\d\+$' && target !=# $TMUX_PANE
+      if s:redraw_timer != -1
+        call timer_stop(s:redraw_timer)
+        let s:redraw_timer = -1
+      endif
+      if s:client_refresh_timer != -1
+        call timer_stop(s:client_refresh_timer)
+        let s:client_refresh_timer = -1
+      endif
+      let s:force_redraw = 0
       " Preserve command text already delivered to Vim during the pane switch.
       let keys = []
       while 1
@@ -325,6 +336,7 @@ function! IpdbWindowMove(direction) abort
       if !empty(keys)
         call system(tmux . ' send-keys -t ' . shellescape(target) . ' ' . join(keys, ' '))
       endif
+      return
     endif
     call IpdbSourceRedraw(1)
   endif
