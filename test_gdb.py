@@ -73,6 +73,23 @@ class CommandTests(unittest.TestCase):
             debugger.onecmd(debugger.precmd(command))
             self.assertIn('***', output.getvalue())
 
+    def test_enable_disable_ranges_with_missing_ids(self):
+        import bdb
+        output = io.StringIO()
+        debugger = Pdb(stdin=io.StringIO(), stdout=output)
+        try:
+            debugger.set_break(__file__, 1)
+            entry = debugger.get_breaks(debugger.canonic(__file__), 1)[-1]
+            missing = entry.number + 1
+            debugger.onecmd(debugger.precmd('dis {}-{}'.format(entry.number, missing)))
+            self.assertFalse(entry.enabled)
+            self.assertIn('Unknown breakpoint IDs: {}'.format(missing), output.getvalue())
+            debugger.onecmd(debugger.precmd('en {}-{}'.format(entry.number, missing)))
+            self.assertTrue(entry.enabled)
+        finally:
+            debugger.clear_all_breaks()
+            bdb.Breakpoint.bplist.clear()
+
     def test_translation(self):
         cases = {'bt': 'backtrace', 'bt 2': 'backtrace 2', 'finish': 'return',
                  'break sample.py:10 if x == 3': 'break sample.py:10, x == 3',

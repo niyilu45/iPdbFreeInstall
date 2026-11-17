@@ -102,6 +102,8 @@ def Install():
         return
     Pdb._portable_gdb = True
     original_clear = Pdb.do_clear
+    original_enable = Pdb.do_enable
+    original_disable = Pdb.do_disable
     original_checkline = Pdb.checkline
 
     def CheckLine(self, filename, lineno):
@@ -398,7 +400,7 @@ def Install():
         except (ValueError, OSError) as error:
             self.error(str(error))
 
-    def DeleteIds(self, argument, entries, delete, label):
+    def ApplyIds(self, argument, entries, action, label):
         try:
             numbers = ParseIds(argument)
         except ValueError as error:
@@ -413,7 +415,7 @@ def Install():
                 missing.append(number)
                 continue
             try:
-                delete(number)
+                action(number)
             except (ValueError, OSError) as error:
                 self.error(str(error))
         if missing:
@@ -424,18 +426,32 @@ def Install():
             return original_clear(self, argument)
         import bdb
         entries = {entry.number for entry in bdb.Breakpoint.bpbynumber if entry}
-        return DeleteIds(self, argument, entries,
+        return ApplyIds(self, argument, entries,
                          lambda number: original_clear(self, str(number)), 'breakpoint')
 
     def DeleteCheckpoint(self, argument):
         from checkpoints import Manager
-        DeleteIds(self, argument, Manager.entries, Manager.Delete, 'checkpoint')
+        ApplyIds(self, argument, Manager.entries, Manager.Delete, 'checkpoint')
+
+    def Enable(self, argument):
+        import bdb
+        entries = {entry.number for entry in bdb.Breakpoint.bpbynumber if entry}
+        ApplyIds(self, argument, entries,
+                  lambda number: original_enable(self, str(number)), 'breakpoint')
+
+    def Disable(self, argument):
+        import bdb
+        entries = {entry.number for entry in bdb.Breakpoint.bpbynumber if entry}
+        ApplyIds(self, argument, entries,
+                  lambda number: original_disable(self, str(number)), 'breakpoint')
 
     Pdb.precmd = Precmd
     Pdb.do__portable_noop = Noop
     Pdb.do_down = Down
     Pdb.do_clear = Clear
     Pdb.do_d = Clear
+    Pdb.do_enable = Enable
+    Pdb.do_disable = Disable
     Pdb.print_stack_entry = StackEntry
     Pdb._portable_show_displays = ShowDisplays
     Pdb.do_display = Display
