@@ -49,8 +49,65 @@ def ExpressionMatches(debugger, prefix):
         return []
 
 
+def StringMatches(debugger, line, begin, end):
+    quote = None
+    start = 0
+    escaped = False
+    for index, character in enumerate(line[:end]):
+        if escaped:
+            escaped = False
+        elif character == chr(92) and quote:
+            escaped = True
+        elif quote:
+            if character == quote:
+                quote = None
+        elif character in ("'", '"'):
+            quote, start = character, index + 1
+    if quote is None:
+        return None
+    prefix = line[start:end]
+    frame = getattr(debugger, 'curframe', None)
+    namespace = {}
+    if frame is not None:
+        namespace.update(frame.f_globals)
+        namespace.update(frame.f_locals)
+    values = set()
+    # Dictionary indexing should complete that dictionary's keys only.
+    lookup = re.search(r'([A-Za-z_]\w*)\[\s*$', line[:start - 1])
+    target = namespace.get(lookup.group(1)) if lookup else None
+    if type(target) is dict:
+        values.update(key for key in target if isinstance(key, str))
+    else:
+        for value in namespace.values():
+            if isinstance(value, str):
+                values.add(value)
+            elif type(value) is dict:
+                values.update(key for key in value if isinstance(key, str))
+        values.update(BufferMatches(prefix))
+        directory, name = os.path.split(os.path.expanduser(prefix))
+        try:
+            with os.scandir(directory or '.') as entries:
+                for entry in entries:
+                    if entry.name.startswith(name):
+                        head = prefix[:len(prefix) - len(name)] if name else prefix
+                        values.add(head + entry.name + ('/' if entry.is_dir() else ''))
+        except OSError:
+            pass
+    candidates = []
+    for value in values:
+        encoded = value.replace(chr(92), chr(92) * 2).replace(quote, chr(92) + quote)
+        encoded = encoded.replace(chr(10), chr(92) + 'n').replace(chr(13), chr(92) + 'r').replace(chr(9), chr(92) + 't')
+        if encoded.startswith(prefix):
+            full = line[:start] + encoded
+            candidates.append(full[begin:])
+    return sorted(set(candidates))
+
+
 def Matches(debugger, line, begin, end):
     from gdb_commands import COMMANDS, ALIASES, Resolve
+    strings = StringMatches(debugger, line, begin, end)
+    if strings is not None:
+        return strings
     before = line[:end]
     stripped = before.lstrip()
     start = len(before) - len(stripped)

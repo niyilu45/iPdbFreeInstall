@@ -14,6 +14,22 @@ class CompletionTests(unittest.TestCase):
         begin = len(line.rstrip('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_0123456789.'))
         return Matches(self.debugger, line, begin, len(line))
 
+    def test_quoted_dictionary_keys_and_string_values(self):
+        self.debugger.curframe.f_locals.update(
+            config={'sample_rate': 1, 'sample_width': 2}, label='hello world')
+        for quote in (chr(39), chr(34)):
+            line = 'p config[' + quote + 'sample_'
+            self.assertEqual(Matches(self.debugger, line, len(line) - 7, len(line)),
+                             ['sample_rate', 'sample_width'])
+            self.assertEqual(Matches(self.debugger, line, len('p config['), len(line)),
+                             [quote + 'sample_rate', quote + 'sample_width'])
+            line = 'p ' + quote + 'hello wo'
+            self.assertIn('world', Matches(self.debugger, line, len(line) - 2, len(line)))
+        self.assertIn('sample_count', self.Complete('p sample_c'))
+        self.debugger.curframe.f_locals['config'] = {"it's done": 1}
+        line = "p config['it\\'s d"
+        self.assertEqual(Matches(self.debugger, line, len(line) - 1, len(line)), ['done'])
+
     def test_commands_and_subcommands(self):
         self.assertEqual(self.Complete('chec'), ['checkpoint'])
         self.assertEqual(self.Complete('disp'), ['display'])
