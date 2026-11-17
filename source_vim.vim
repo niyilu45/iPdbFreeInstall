@@ -38,6 +38,24 @@ endif
 let s:last = ''
 highlight default IpdbExecution ctermbg=DarkGrey guibg=#444444
 sign define IpdbExecution text=>> texthl=Search linehl=IpdbExecution
+
+function! IpdbExecutionCursor() abort
+  let overlap = bufnr('%') == get(g:, 'ipdb_execution_buffer', -1)
+        \ && line('.') == get(g:, 'ipdb_execution_line', -1)
+  if overlap && &l:cursorline
+    let w:ipdb_restore_cursorline = 1
+    setlocal nocursorline
+  elseif !overlap && get(w:, 'ipdb_restore_cursorline', 0)
+    setlocal cursorline
+    let w:ipdb_restore_cursorline = 0
+  endif
+endfunction
+
+augroup IpdbExecutionCursor
+  autocmd!
+  autocmd CursorMoved,CursorMovedI,BufEnter,WinEnter * call IpdbExecutionCursor()
+  autocmd ColorScheme * highlight default IpdbExecution ctermbg=DarkGrey guibg=#444444
+augroup END
 " Defer full redraw until window events finish; never redraw recursively.
 let s:screen_layout = ''
 let s:redraw_timer = -1
@@ -238,6 +256,15 @@ function! IpdbSourcePoll(timer) abort
     normal! zvzz
     silent! sign unplace 7351
     execute 'sign place 7351 line=' . state.line . ' name=IpdbExecution buffer=' . bufnr('%')
+    let g:ipdb_execution_buffer = bufnr('%')
+    let g:ipdb_execution_line = state.line
+    for source_window in getwininfo()
+      if source_window.bufnr == g:ipdb_execution_buffer || getwinvar(source_window.winid, 'ipdb_restore_cursorline', 0)
+        if win_gotoid(source_window.winid)
+          call IpdbExecutionCursor()
+        endif
+      endif
+    endfor
     let s:last = raw
     let g:ipdb_source_error = ''
   catch
