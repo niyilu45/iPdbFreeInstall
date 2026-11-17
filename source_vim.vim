@@ -20,6 +20,10 @@ if has('syntax') && !exists('g:syntax_on')
 endif
 " Route clicks to the corresponding Vim window instead of terminal selection.
 set mouse=a
+" Successful multi-buffer writes must not enter a hit-enter/more prompt.
+" Keep write errors visible (silent, not silent!) and leave other Ex output alone.
+cnoreabbrev <expr> wa getcmdtype() ==# ':' && getcmdline() ==# 'wa' ? 'silent wall' : 'wa'
+cnoreabbrev <expr> wall getcmdtype() ==# ':' && getcmdline() ==# 'wall' ? 'silent wall' : 'wall'
 " Avoid terminal line-scroll and background-erase optimizations in tmux.
 " Some outer terminals leave cells intact even after a normal Ctrl-L redraw.
 if !empty($IPDB_TMUX_SOCKET)

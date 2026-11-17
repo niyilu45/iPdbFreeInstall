@@ -71,6 +71,17 @@ class FocusTests(unittest.TestCase):
                 self.assertNotIn(b'E325', output)
                 os.write(master, b'\x17j!print(731923)\n')
                 Wait(lambda: b'731923\r\n' in output, 'input after edit with existing swap', 3)
+                os.write(master, b'\x17k')
+                Wait(lambda: Active() == '0', 'source before write all')
+                setup = ":set hidden shortmess= cmdheight=1 | for i in range(1, 25) | silent execute 'edit " + str(root) + "/save' . i . '.py' | call setline(1, 'value = 1') | endfor\r"
+                os.write(master, setup.encode())
+                time.sleep(0.3)
+                os.write(master, b':wa\r')
+                time.sleep(0.3)
+                os.write(master, b'\x17j!print(731922)\n')
+                Wait(lambda: b'731922\r\n' in output, 'input after write all', 3)
+                for index in range(1, 26):
+                    self.assertEqual((root / ('save{}.py'.format(index))).read_text().strip(), 'value = 1')
                 for iteration in range(20):
                     os.write(master, b'\x17k')
                     Wait(lambda: Active() == '0', 'first up chord {}'.format(iteration), 1)
