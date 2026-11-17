@@ -233,7 +233,33 @@ function! IpdbWindowMove(direction) abort
   execute 'wincmd ' . a:direction
   if win_getid() == previous && !empty($IPDB_TMUX_SOCKET)
     let direction = {'h': '-L', 'j': '-D', 'k': '-U', 'l': '-R'}[a:direction]
-    call system(shellescape($IPDB_TMUX_BIN) . ' -L ' . shellescape($IPDB_TMUX_SOCKET) . ' select-pane ' . direction)
+    let tmux = shellescape($IPDB_TMUX_BIN) . ' -L ' . shellescape($IPDB_TMUX_SOCKET)
+    let target = trim(system(tmux . ' select-pane ' . direction . ' \; display-message -p "#{pane_id}"'))
+    if v:shell_error == 0 && target =~# '^%\d\+$' && target !=# $TMUX_PANE
+      " Preserve command text already delivered to Vim during the pane switch.
+      let keys = []
+      while 1
+        let pending = getchar(1)
+        if type(pending) != type(0) || pending == 0 || pending == 23
+          break
+        endif
+        let character = getchar(0)
+        if character == 10 || character == 13
+          call add(keys, 'Enter')
+        elseif character == 8 || character == 127
+          call add(keys, 'BSpace')
+        elseif character == 27
+          call add(keys, 'Escape')
+        elseif character < 32
+          call add(keys, 'C-' . nr2char(character + 96))
+        else
+          call add(keys, shellescape(nr2char(character)))
+        endif
+      endwhile
+      if !empty(keys)
+        call system(tmux . ' send-keys -t ' . shellescape(target) . ' ' . join(keys, ' '))
+      endif
+    endif
     call IpdbSourceRedraw(1)
   endif
 endfunction
