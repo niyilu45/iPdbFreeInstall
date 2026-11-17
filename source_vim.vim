@@ -3,6 +3,17 @@ if !exists('*timer_start') || !exists('*json_decode') || !exists('*win_getid')
   call writefile(['System Vim requires timers, JSON and window IDs'], $IPDB_VIM_READY)
   finish
 endif
+" Keep recovery files, but do not share swap files with other editor sessions.
+" An E325 prompt can consume navigation/input before Normal-mode mappings run.
+let s:swap_directory = expand('~/.cache/ipdb/vim-swap/') . getpid()
+try
+  call mkdir(s:swap_directory, 'p', 0700)
+  let &directory = escape(s:swap_directory, ' ,') . '//'
+catch
+  echohl WarningMsg
+  echom 'ipdb: could not create a private Vim swap directory: ' . v:exception
+  echohl None
+endtry
 " Enable syntax by default without resetting an existing color scheme.
 if has('syntax') && !exists('g:syntax_on')
   syntax enable
