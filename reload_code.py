@@ -9,6 +9,42 @@ import ast
 import bdb
 import tokenize
 import pdb
+import atexit
+
+
+class ExitCallbacks:
+    """Keep each debuggee run's exit callbacks separate from the launcher."""
+    def __init__(self):
+        self.entries = []
+        self.register = atexit.register
+        self.unregister = atexit.unregister
+
+    def Register(self, function, *args, **kwargs):
+        self.entries.append((function, args, kwargs))
+        return function
+
+    def Unregister(self, function):
+        self.entries[:] = [entry for entry in self.entries if entry[0] != function]
+        self.unregister(function)
+
+    def Start(self):
+        atexit.register = self.Register
+        atexit.unregister = self.Unregister
+
+    def Finish(self, execute):
+        try:
+            if execute:
+                while self.entries:
+                    function, args, kwargs = self.entries.pop()
+                    try:
+                        function(*args, **kwargs)
+                    except BaseException:
+                        import traceback
+                        traceback.print_exc()
+        finally:
+            self.entries.clear()
+            atexit.register = self.register
+            atexit.unregister = self.unregister
 
 
 def ReadSource(filename):
@@ -206,17 +242,24 @@ def Install():
                 self._portable_reload_pending = False
                 self.message('Reloading saved project source from {}'.format(self._portable_project_root))
             self._portable_execution_active = True
+            callbacks = ExitCallbacks()
+            callbacks.Start()
+            completed = False
             try:
-                return original(self, filename)
+                result = original(self, filename)
+                completed = True
+                return result
             except SystemExit as error:
                 # Keep the traceback frames alive while inspecting program exit.
                 traceback = error.__traceback__
                 self.message('Program requested exit: {!r}. Inspect the saved stack, r to rerun, or q to quit.'.format(error.code))
                 self.interaction(None, traceback)
+                completed = True
                 if getattr(self, '_user_requested_quit', False):
                     return
                 raise
             finally:
+                callbacks.Finish(completed)
                 self._portable_execution_active = False
         return Execute
 

@@ -166,6 +166,9 @@ def Supervise(callback):
             code = 1
         finally:
             Manager.Cleanup()
+            # os._exit is required for fork workers, but skips Python shutdown.
+            import atexit
+            atexit._run_exitfuncs()
             os.write(write_fd, str(code).encode('ascii'))
             os.close(write_fd)
             sys.stdout.flush()

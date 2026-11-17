@@ -11,6 +11,21 @@ from reload_code import Relocate
 
 
 class ReloadTests(unittest.TestCase):
+    def test_exit_callbacks_run_once_in_reverse_order(self):
+        for ending, commands in [('pass', 'c\nq\n'), ('sys.exit(7)', 'c\nc\nq\n')]:
+            with self.subTest(ending=ending), tempfile.TemporaryDirectory() as directory:
+                script = Path(directory) / 'callbacks.py'
+                script.write_text('import atexit, sys\natexit.register(print, "FIRST_CALLBACK")\natexit.register(print, "LAST_CALLBACK")\n' + ending + '\n')
+                launcher = Path(__file__).with_name('portable_ipdb.py').resolve()
+                result = subprocess.run([sys.executable, '-B', str(launcher), '--plain', str(script)],
+                    input=commands, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                    universal_newlines=True, timeout=30,
+                    env=dict(os.environ, IPY_TEST_SIMPLE_PROMPT='1', IPYTHONDIR=directory))
+                self.assertEqual(result.returncode, 0, result.stdout)
+                self.assertEqual(len(re.findall(r'(?m)^(?:ipdb> )?LAST_CALLBACK\s*$', result.stdout)), 1, result.stdout)
+                self.assertEqual(len(re.findall(r'(?m)^FIRST_CALLBACK\s*$', result.stdout)), 1, result.stdout)
+                self.assertLess(result.stdout.index('LAST_CALLBACK\nFIRST_CALLBACK'), result.stdout.index('FIRST_CALLBACK', result.stdout.index('LAST_CALLBACK\nFIRST_CALLBACK')))
+
     def test_exit_preserves_locals_and_allows_restart(self):
         with tempfile.TemporaryDirectory() as directory:
             script = Path(directory) / 'exit_sample.py'
@@ -23,7 +38,7 @@ class ReloadTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout)
             self.assertEqual(result.stdout.count('Program requested exit: 7'), 2, result.stdout)
             self.assertGreaterEqual(len(re.findall(r'(?m).*42\s*$', result.stdout)), 2, result.stdout)
-            self.assertIn('sys.exit(7)', result.stdout)
+            self.assertIn('sys.exit(7)', re.sub(r'\x1b\[[0-9;]*m', '', result.stdout))
 
 
     def test_restart_from_post_mortem_keeps_session(self):
