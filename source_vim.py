@@ -186,7 +186,7 @@ def VimCommand(vim, bridge):
 def Worker(config_path):
     config = json.loads(Path(config_path).read_text())
     environment = dict(os.environ, IPDB_VIM_STATE=config['state'])
-    code = subprocess.call(config['command'], env=environment)
+    code = subprocess.call(config['command'], env=environment, cwd=config.get('cwd'))
     Path(config['result']).write_text(str(code))
     print('[ipdb] Debugger exited with status {}. Press Enter to close Vim and return.'.format(code), flush=True)
     try:
@@ -231,12 +231,12 @@ def Run(arguments):
         environment['IPDB_TMUX_SOCKET'] = command[2]
         environment['IPDB_VIM_STATE'] = str(root / 'source.json')
         environment['IPDB_VIM_READY'] = str(root / 'ready')
-        config = {'state': environment['IPDB_VIM_STATE'], 'result': str(root / 'result'),
+        config = {'cwd': os.getcwd(), 'state': environment['IPDB_VIM_STATE'], 'result': str(root / 'result'),
                   'command': [sys.executable, str(base / 'portable_ipdb.py'), '--plain'] + list(arguments), 'tmux': command}
         (root / 'config.json').write_text(json.dumps(config))
         size = shutil.get_terminal_size()
         try:
-            source_id = Tmux('new-session', '-P', '-F', '#{pane_id}', '-d', '-s', 'debug', '-x', str(size.columns), '-y', str(size.lines), Shell(VimCommand(vim, base / 'source_vim.vim')))
+            source_id = Tmux('new-session', '-P', '-F', '#{pane_id}', '-d', '-s', 'debug', '-c', config['cwd'], '-x', str(size.columns), '-y', str(size.lines), Shell(VimCommand(vim, base / 'source_vim.vim')))
             deadline = time.monotonic() + 20
             while not (root / 'ready').exists() and time.monotonic() < deadline:
                 time.sleep(0.1)
@@ -245,7 +245,7 @@ def Run(arguments):
             ready = (root / 'ready').read_text().strip()
             if ready != 'ready':
                 raise RuntimeError(ready)
-            Tmux('split-window', '-v', '-l', str(max(3, size.lines // 2)), '-t', 'debug:0.0', Shell([sys.executable, base / 'source_vim.py', '--worker', root / 'config.json']))
+            Tmux('split-window', '-c', config['cwd'], '-v', '-l', str(max(3, size.lines // 2)), '-t', 'debug:0.0', Shell([sys.executable, base / 'source_vim.py', '--worker', root / 'config.json']))
             Tmux('set-option', '-t', 'debug', 'mouse', 'on')
             Tmux('set-option', '-g', 'focus-events', 'on')
             # Show actual focus, not the asynchronously renamed window command.

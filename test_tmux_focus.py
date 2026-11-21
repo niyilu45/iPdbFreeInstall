@@ -29,7 +29,7 @@ class FocusTests(unittest.TestCase):
             master, slave = pty.openpty()
             fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 40, 120, 0, 0))
             process = subprocess.Popen(['sh', str(Path(__file__).with_name('ipdbVim.sh')), str(script)],
-                stdin=slave, stdout=slave, stderr=slave,
+                stdin=slave, stdout=slave, stderr=slave, cwd=directory,
                 env=dict(os.environ, TERM='xterm-256color', TMPDIR=directory, HOME=directory,
                          IPYTHONDIR=directory, IPDB_VIM_CLEAN='1', IPDB_PYTHON=sys.executable))
             os.close(slave)
@@ -64,6 +64,9 @@ class FocusTests(unittest.TestCase):
                 Wait(lambda: b'ipdb>' in output, 'initial prompt')
                 config = json.loads(next(root.glob('ipdb-vim-*/config.json')).read_text())
                 command = config['tmux']
+                self.assertEqual(config['cwd'], directory)
+                os.write(master, b'!print("CWD_MATCH=" + str(__import__("os").getcwd() == ' + repr(directory).encode() + b'))\n')
+                Wait(lambda: b'CWD_MATCH=True\r\n' in output, 'launch working directory changed')
                 os.write(master, b'\x17k')
                 Wait(lambda: Active() == '0', 'source with existing swap')
                 os.write(master, b':e\r')
