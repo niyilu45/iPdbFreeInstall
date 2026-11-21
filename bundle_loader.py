@@ -73,6 +73,11 @@ def Locate(base, platform, version):
                         destination.parent.mkdir(parents=True, exist_ok=True)
                         shutil.copy2(str(source), str(destination))
         else:
-            staging.rename(target)
+            try:
+                staging.rename(target)
+            except OSError:
+                # A concurrent launcher may have published its validated tree.
+                if not Complete(target):
+                    raise
     print('[ipdb] Dependencies ready ({:.1f}s). Future launches reuse them.'.format(time.monotonic() - started), file=sys.stderr, flush=True)
     return target

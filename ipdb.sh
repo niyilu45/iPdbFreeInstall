@@ -1,6 +1,9 @@
 #!/bin/sh
 set -eu
 
+# Public launches must not inherit another debugger session bridge.
+unset IPDB_VIM_STATE IPDB_VIM_READY IPDB_VIM_CLOSE IPDB_VIM_CLOSED IPDB_TMUX_BIN IPDB_TMUX_SOCKET
+
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 if [ -n "${IPDB_PYTHON:-}" ]; then
     python_bin=$IPDB_PYTHON

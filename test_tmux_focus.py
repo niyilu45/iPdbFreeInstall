@@ -22,6 +22,8 @@ class FocusTests(unittest.TestCase):
             root = Path(directory)
             script = root / 'sample.py'
             script.write_text('value = 1\nprint(value)\n')
+            inherited_close = root / 'other-session-close'
+            inherited_close.write_text('close')
             owner = subprocess.Popen(['vim', '-N', '-u', 'NONE', '-i', 'NONE', '-es',
                 str(script), '-c', 'preserve', '-c', 'sleep 60'],
                 stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -31,7 +33,7 @@ class FocusTests(unittest.TestCase):
             process = subprocess.Popen(['sh', str(Path(__file__).with_name('ipdbVim.sh')), str(script)],
                 stdin=slave, stdout=slave, stderr=slave, cwd=directory,
                 env=dict(os.environ, TERM='xterm-256color', TMPDIR=directory, HOME=directory,
-                         IPYTHONDIR=directory, IPDB_VIM_CLEAN='1', IPDB_PYTHON=sys.executable))
+                         IPYTHONDIR=directory, IPDB_VIM_CLOSE=str(inherited_close), IPDB_VIM_CLOSED=str(root / 'other-closed'), IPDB_VIM_CLEAN='1', IPDB_PYTHON=sys.executable))
             os.close(slave)
             output = bytearray()
             def Drain():
@@ -63,6 +65,7 @@ class FocusTests(unittest.TestCase):
             try:
                 Wait(lambda: b'ipdb>' in output, 'initial prompt')
                 config = json.loads(next(root.glob('ipdb-vim-*/config.json')).read_text())
+                self.assertFalse((root / 'other-closed').exists())
                 command = config['tmux']
                 self.assertEqual(config['cwd'], directory)
                 os.write(master, b'!print("CWD_MATCH=" + str(__import__("os").getcwd() == ' + repr(directory).encode() + b'))\n')

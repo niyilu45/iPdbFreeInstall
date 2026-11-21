@@ -213,7 +213,8 @@ def Run(arguments):
         raise RuntimeError('System Vim needs +timers, +eval and +signs (Vim 8 or newer)')
     base = Path(__file__).resolve().parent
     environment = dict(os.environ)
-    environment.pop('TMUX', None)
+    for key in ('TMUX', 'TMUX_PANE', 'IPDB_VIM_CLOSE', 'IPDB_VIM_CLOSED', 'IPDB_VIM_READY', 'IPDB_VIM_STATE', 'IPDB_TMUX_BIN', 'IPDB_TMUX_SOCKET'):
+        environment.pop(key, None)
     command = [tmux, '-L', 'ipdb-' + uuid.uuid4().hex, '-f', '/dev/null']
     def Tmux(*args):
         result = subprocess.run(command + list(args), env=environment, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
