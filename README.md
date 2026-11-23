@@ -37,6 +37,11 @@ Add the extracted bundle directory to sys.path, then:
 
 Commands: n (next), s (step), c (continue), p expression, q (quit).
 
+Press Ctrl+C in the command terminal to pause running Python code at its
+next traceable line. Use `bt` to inspect the stack, `p` to inspect variables,
+and `n`, `s`, or `c` to resume. A long native call can delay the pause until
+control returns to Python.
+
 ## Prepare from source
 
 A complete source checkout automatically extracts the matching archive from

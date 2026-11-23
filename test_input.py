@@ -1,4 +1,4 @@
-"""Linux PTY regression for identical plain and split command editing."""
+"""Linux PTY regression for command editing and live interrupts."""
 import os
 from pathlib import Path
 import subprocess
@@ -31,6 +31,97 @@ class KeyPreservationTests(unittest.TestCase):
 
 @unittest.skipUnless(sys.platform.startswith('linux'), 'Linux PTY required')
 class InputParityTests(unittest.TestCase):
+    def test_ctrl_c_pauses_live_loop(self):
+        import fcntl
+        import pty
+        import select
+        import signal
+        import struct
+        import termios
+
+        launcher = Path(__file__).with_name('portable_ipdb.py').resolve()
+        for mode in ('--plain', '--tui'):
+            for resume in (b'c', b'n'):
+                with self.subTest(mode=mode, resume=resume), tempfile.TemporaryDirectory() as directory:
+                    script = Path(directory) / 'loop.py'
+                    script.write_text(
+                        'def Inner():\n'
+                        '    gate = [True]\n'
+                        '    token = 1439811\n'
+                        "    print('LOOP' + '_READY', flush=True)\n"
+                        '    count = 0\n'
+                        '    while gate[0]:\n'
+                        '        count += 1\n'
+                        '    return token\n'
+                        'def Outer():\n'
+                        '    return Inner()\n'
+                        'result = Outer()\n'
+                        "print('DONE' + '_VALUE', result, flush=True)\n")
+                    environment = dict(os.environ, TERM='xterm-256color', IPYTHONDIR=directory)
+                    pid, master = pty.fork()
+                    if pid == 0:
+                        fcntl.ioctl(0, termios.TIOCSWINSZ, struct.pack('HHHH', 32, 120, 0, 0))
+                        os.chdir(directory)
+                        os.execve(sys.executable, [sys.executable, '-S', str(launcher), mode, str(script)], environment)
+
+                    def ReadUntil(marker):
+                        output = bytearray()
+                        deadline = time.monotonic() + 10
+                        while time.monotonic() < deadline:
+                            if select.select([master], [], [], 0.1)[0]:
+                                try:
+                                    chunk = os.read(master, 65536)
+                                except OSError:
+                                    break
+                                if not chunk:
+                                    break
+                                output.extend(chunk)
+                                if marker in output:
+                                    return bytes(output)
+                        self.fail('Missing {!r}: {!r}'.format(marker, bytes(output[-2000:])))
+
+                    def Command(command):
+                        os.write(master, command + b'\n')
+                        return ReadUntil(b'ipdb> ')
+
+                    try:
+                        ReadUntil(b'ipdb> ')
+                        Command(b'n')
+                        Command(b'n')
+                        os.write(master, resume + b'\n')
+                        ReadUntil(b'LOOP_READY')
+                        os.write(master, b'\x03')
+                        ReadUntil(b'ipdb> ')
+                        backtrace = Command(b'bt')
+                        self.assertRegex(backtrace, br'\* #0 Inner at [^\r\n]+loop\.py:[67]\b')
+                        self.assertRegex(backtrace, br'#1 Outer at [^\r\n]+loop\.py:10\b')
+                        self.assertRegex(Command(b'p token'), br'\r?\n1439811\r?\n')
+                        Command(b'n')
+                        self.assertRegex(Command(b'bt'), br'\* #0 Inner at [^\r\n]+loop\.py:[67]\b')
+                        Command(b'!gate[0] = False')
+                        os.write(master, b'c\n')
+                        done = ReadUntil(b'ipdb> ')
+                        self.assertIn(b'DONE_VALUE 1439811', done)
+                        os.write(master, b'q\n')
+                        deadline = time.monotonic() + 5
+                        while time.monotonic() < deadline:
+                            child, status = os.waitpid(pid, os.WNOHANG)
+                            if child:
+                                pid = None
+                                self.assertTrue(os.WIFEXITED(status), status)
+                                self.assertEqual(os.WEXITSTATUS(status), 0)
+                                break
+                            time.sleep(0.01)
+                        self.assertIsNone(pid, 'Debugger did not exit after quit')
+                    finally:
+                        if pid is not None:
+                            try:
+                                os.killpg(pid, signal.SIGKILL)
+                            except ProcessLookupError:
+                                pass
+                            os.waitpid(pid, 0)
+                        os.close(master)
+
     def test_plain_and_split_editing(self):
         import fcntl
         import pty

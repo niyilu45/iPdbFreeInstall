@@ -40,13 +40,19 @@ def Run(arguments):
                IPDB_VIM_CLOSE=str(root / 'close'), IPDB_VIM_CLOSED=str(root / 'closed'))
     command = VimCommand(gvim, base / 'source_vim.vim')
     command.insert(1, '-f')
+    # Keep terminal interrupts in the debugger's process group.
+    if sys.platform == 'win32':
+        editor_group = {'creationflags': subprocess.CREATE_NEW_PROCESS_GROUP}
+    else:
+        editor_group = {'start_new_session': True}
     process = None
     print('[ipdb] Opening system gVim; debugger commands remain in this terminal.', flush=True)
     if env.get('IPDB_VIM_CLEAN') == '1':
         print('[ipdb] Diagnostic mode: user vimrc and plugins disabled for this session.', flush=True)
     try:
         with (root / 'startup.log').open('w') as log:
-            process = subprocess.Popen(command, env=env, stdin=subprocess.DEVNULL, stdout=log, stderr=log)
+            editor_options = dict(env=env, stdin=subprocess.DEVNULL, stdout=log, stderr=log, **editor_group)
+            process = subprocess.Popen(command, **editor_options)
             deadline = time.monotonic() + 20
             while not (root / 'ready').exists():
                 if process.poll() is not None:
@@ -59,24 +65,27 @@ def Run(arguments):
                 raise RuntimeError(message)
             debugger = subprocess.Popen([sys.executable, str(base / 'portable_ipdb.py'), '--plain'] + list(arguments), env=env)
             restarts = []
-            while debugger.poll() is None:
-                if process.poll() is not None:
-                    now = time.monotonic()
-                    restarts = [stamp for stamp in restarts if now - stamp < 10]
-                    # Bound repeated startup crashes while retaining automatic recovery.
-                    if len(restarts) >= 3:
-                        time.sleep(0.1)
-                        continue
-                    restarts.append(now)
-                    for name in ('ready', 'closed'):
-                        try:
-                            (root / name).unlink()
-                        except FileNotFoundError:
-                            pass
-                    print('[ipdb] Source window closed; reopening gVim at the current location.', flush=True)
-                    process = subprocess.Popen(command, env=env, stdin=subprocess.DEVNULL, stdout=log, stderr=log)
-                time.sleep(0.1)
-            return debugger.returncode
+            while True:
+                try:
+                    if debugger.poll() is not None:
+                        return debugger.returncode
+                    if process.poll() is not None:
+                        now = time.monotonic()
+                        restarts = [stamp for stamp in restarts if now - stamp < 10]
+                        # Bound repeated startup crashes while retaining automatic recovery.
+                        if len(restarts) < 3:
+                            restarts.append(now)
+                            for name in ('ready', 'closed'):
+                                try:
+                                    (root / name).unlink()
+                                except FileNotFoundError:
+                                    pass
+                            print('[ipdb] Source window closed; reopening gVim at the current location.', flush=True)
+                            process = subprocess.Popen(command, **editor_options)
+                    time.sleep(0.1)
+                except KeyboardInterrupt:
+                    # The running debugger shares our terminal and handles Ctrl+C.
+                    continue
     finally:
         (root / 'close').write_text('close')
         deadline = time.monotonic() + 3

@@ -183,10 +183,21 @@ def VimCommand(vim, bridge):
     return command
 
 
+def WaitForDebugger(process):
+    # The terminal delivers Ctrl+C to both the launcher and the debugger.
+    # Keep waiting while the debugger handles it in the running program.
+    while True:
+        try:
+            return process.wait()
+        except KeyboardInterrupt:
+            continue
+
+
 def Worker(config_path):
     config = json.loads(Path(config_path).read_text())
     environment = dict(os.environ, IPDB_VIM_STATE=config['state'])
-    code = subprocess.call(config['command'], env=environment, cwd=config.get('cwd'))
+    debugger = subprocess.Popen(config['command'], env=environment, cwd=config.get('cwd'))
+    code = WaitForDebugger(debugger)
     Path(config['result']).write_text(str(code))
     print('[ipdb] Debugger exited with status {}. Press Enter to close Vim and return.'.format(code), flush=True)
     try:

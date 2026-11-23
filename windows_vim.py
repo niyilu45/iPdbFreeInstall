@@ -30,10 +30,12 @@ def WaitReady(config):
 
 
 def Debug(config):
+    from source_vim import WaitForDebugger
     code = 1
     try:
         WaitReady(config)
-        code = subprocess.call(config['debugger'], env=Environment(config), cwd=config['cwd'])
+        debugger = subprocess.Popen(config['debugger'], env=Environment(config), cwd=config['cwd'])
+        code = WaitForDebugger(debugger)
     except (OSError, RuntimeError) as error:
         print('[ipdb] ' + str(error), flush=True)
     finally:

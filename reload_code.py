@@ -10,6 +10,8 @@ import bdb
 import tokenize
 import pdb
 import atexit
+import signal
+import threading
 
 
 class ExitCallbacks:
@@ -245,7 +247,33 @@ def Install():
             callbacks = ExitCallbacks()
             callbacks.Start()
             completed = False
+            previous_sigint = None
+            previous_nosigint = self.nosigint
+
+            def Pause(_signum, frame):
+                if self.allow_kbdint or getattr(self, 'quitting', True) or self.botframe is None:
+                    raise KeyboardInterrupt
+                frames = []
+                current = frame
+                while current is not None and current is not self.botframe:
+                    frames.append(current)
+                    current = current.f_back
+                if current is None or not frames:
+                    raise KeyboardInterrupt
+                # Continue can remove tracing altogether. Restore it on the
+                # live stack without resetting the debugger's run boundary.
+                self.set_step()
+                for current in frames:
+                    current.f_trace = self.trace_dispatch
+                sys.settrace(self.trace_dispatch)
+
             try:
+                if not previous_nosigint and threading.current_thread() is threading.main_thread():
+                    previous_sigint = signal.getsignal(signal.SIGINT)
+                    if previous_sigint is not None:
+                        signal.signal(signal.SIGINT, Pause)
+                        # Keep the same handler across continue and step commands.
+                        self.nosigint = True
                 result = original(self, filename)
                 completed = True
                 return result
@@ -258,7 +286,14 @@ def Install():
                 if getattr(self, '_user_requested_quit', False):
                     return
                 raise
+            except KeyboardInterrupt as error:
+                traceback = error.__traceback__
+                self.message('Program interrupted. Inspect the saved stack; use r to restart or q to quit.')
+                return self.interaction(None, traceback)
             finally:
+                if previous_sigint is not None and signal.getsignal(signal.SIGINT) is Pause:
+                    signal.signal(signal.SIGINT, previous_sigint)
+                self.nosigint = previous_nosigint
                 callbacks.Finish(completed)
                 self._portable_execution_active = False
         return Execute
