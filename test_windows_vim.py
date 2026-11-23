@@ -55,19 +55,27 @@ class WindowsVimTests(unittest.TestCase):
             config = json.loads(config_path.read_text())
             Path(config['vim_result']).write_text('0')
 
-        with mock.patch.dict(os.environ, {'ConEmuPID': '123'}), \
-                mock.patch('sys.stdin.isatty', return_value=True), mock.patch('sys.stdout.isatty', return_value=True), \
+        with mock.patch.dict(os.environ, {'ConEmuPID': '123', 'IPDB_CONEMU_TTY': '1'}), \
+                mock.patch('sys.stdin.isatty', return_value=False), mock.patch('sys.stdout.isatty', return_value=False), \
                 mock.patch('windows_vim.shutil.which', return_value='vim.exe') as which, \
                 mock.patch('windows_vim.subprocess.check_output', return_value=b'+timers +eval +signs'), \
                 mock.patch('windows_vim.OpenConEmuVim', side_effect=OpenPane) as pane, \
                 mock.patch('windows_vim.Debug', return_value=7) as debug, \
                 mock.patch('windows_vim.subprocess.Popen') as spawn, mock.patch('windows_vim.subprocess.check_call') as terminal:
             self.assertEqual(windows_vim.Run(['sample.py', 'a&b']), 7)
+            self.assertNotIn('IPDB_CONEMU_TTY', os.environ)
             which.assert_called_once_with('vim')
             pane.assert_called_once()
             self.assertEqual(debug.call_args[0][0]['debugger'][-2:], ['sample.py', 'a&b'])
             spawn.assert_not_called()
             terminal.assert_not_called()
+
+    def test_pipe_requires_conemu_and_an_interactive_shell(self):
+        for environment in ({'ConEmuPID': '123'}, {'IPDB_CONEMU_TTY': '1'}):
+            with self.subTest(environment=environment), mock.patch.dict(os.environ, environment, clear=True), \
+                    mock.patch('sys.stdin.isatty', return_value=False), mock.patch('sys.stdout.isatty', return_value=False):
+                with self.assertRaisesRegex(RuntimeError, 'requires an interactive Windows console'):
+                    windows_vim.Run(['sample.py'])
 
     def test_conemu_split_failure_uses_plain_debugger(self):
         with mock.patch.dict(os.environ, {'ConEmuPID': '123'}), \

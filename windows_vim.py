@@ -111,8 +111,10 @@ def IsRunning(pid):
 
 
 def Run(arguments):
-    if not sys.stdin.isatty() or not sys.stdout.isatty():
-        raise RuntimeError('ipdbVim.cmd requires an interactive Windows console')
+    conemu = bool(os.environ.get('ConEmuPID'))
+    shell_tty = os.environ.pop('IPDB_CONEMU_TTY', '') == '1'
+    if not ((conemu and shell_tty) or (sys.stdin.isatty() and sys.stdout.isatty())):
+        raise RuntimeError('System Vim mode requires an interactive Windows console')
     vim = shutil.which('vim')
     if not vim:
         raise RuntimeError('System vim.exe was not found on PATH. Add your Vim installation directory to PATH.')
@@ -122,7 +124,6 @@ def Run(arguments):
     if any(feature not in version for feature in (b'+timers', b'+eval', b'+signs')):
         raise RuntimeError('System Vim needs +timers, +eval and +signs (Vim 8 or newer)')
     base = Path(__file__).resolve().parent
-    conemu = bool(os.environ.get('ConEmuPID'))
     terminal = None if conemu else shutil.which('wt.exe')
     with tempfile.TemporaryDirectory(prefix='ipdb-vim-') as directory:
         root = Path(directory)

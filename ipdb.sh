@@ -4,6 +4,13 @@ set -eu
 # Public launches must not inherit another debugger session bridge.
 unset IPDB_VIM_STATE IPDB_VIM_READY IPDB_VIM_CLOSE IPDB_VIM_CLOSED IPDB_TMUX_BIN IPDB_TMUX_SOCKET
 
+# The ConEmu MSYS connector exposes a terminal to the shell, but passes pipe
+# handles to native Windows Python. Test before crossing that boundary.
+unset IPDB_CONEMU_TTY
+if [ "${1:-}" = --source-vim ] && [ -n "${ConEmuPID:-}" ] && [ -t 0 ] && [ -t 1 ]; then
+    export IPDB_CONEMU_TTY=1
+fi
+
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 if [ -n "${IPDB_PYTHON:-}" ]; then
     exec "$IPDB_PYTHON" "$script_dir/portable_ipdb.py" "$@"

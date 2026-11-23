@@ -578,7 +578,8 @@ use an existing ipdb installation or prepare matching Windows dependencies
 with `python prepare.py`. Linux vendor packages are not Windows dependency bundles.
 
 In ConEmu, the debugger stays in the current pane and Vim opens below it in the
-same tab. Use the mouse or your ConEmu split navigation shortcuts to move
+same tab. Git Bash tabs using the ConEmu MSYS connector are supported. Use the
+mouse or your ConEmu split navigation shortcuts to move
 between panes. If ConEmu cannot create a split, ipdb runs in the current pane.
 In other Windows terminals, wt.exe on PATH opens a Windows Terminal window
 with upper Vim and lower ipdb panes. Without wt.exe, Vim opens in a separate
