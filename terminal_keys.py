@@ -133,16 +133,21 @@ def ConfigureInput():
     termios.tcsetattr(sys.stdin.fileno(), termios.TCSANOW, attributes)
     try:
         import readline
-        readline.parse_and_bind('tab: complete')
-        readline.parse_and_bind('set show-all-if-ambiguous off')
-        readline.parse_and_bind('"\\C-h": backward-delete-char')
-        readline.parse_and_bind('"\\C-?": backward-delete-char')
-        readline.parse_and_bind('"\\C-p": previous-history')
-        readline.parse_and_bind('"\\C-n": next-history')
-        readline.parse_and_bind('"\\C-l": redraw-current-line')
-        # Repaint the prompt and existing input when tmux returns terminal focus.
-        readline.parse_and_bind('"\\e[I": redraw-current-line')
-        readline.parse_and_bind('"\\e[O": ""')
+        if (getattr(readline, 'backend', None) == 'editline' or
+                'libedit' in (readline.__doc__ or '').lower()):
+            # Python 3.12's cmdloop binds Tab with GNU readline syntax only.
+            readline.parse_and_bind('bind ^I rl_complete')
+        else:
+            readline.parse_and_bind('tab: complete')
+            readline.parse_and_bind('set show-all-if-ambiguous off')
+            readline.parse_and_bind('"\\C-h": backward-delete-char')
+            readline.parse_and_bind('"\\C-?": backward-delete-char')
+            readline.parse_and_bind('"\\C-p": previous-history')
+            readline.parse_and_bind('"\\C-n": next-history')
+            readline.parse_and_bind('"\\C-l": redraw-current-line')
+            # Repaint the prompt and existing input when tmux returns terminal focus.
+            readline.parse_and_bind('"\\e[I": redraw-current-line')
+            readline.parse_and_bind('"\\e[O": ""')
     except ImportError:
         pass
     # This module can have been imported before the child environment changed.

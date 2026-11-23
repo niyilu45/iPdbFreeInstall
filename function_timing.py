@@ -2,6 +2,7 @@
 import cProfile
 import os
 from pathlib import Path
+import sys
 import tempfile
 from time import perf_counter
 from uuid import uuid4
@@ -16,6 +17,13 @@ def Counts(entries):
     return counts
 
 
+def ProfilerSlotOwner():
+    monitoring = getattr(sys, 'monitoring', None)
+    if monitoring is not None:
+        return monitoring.get_tool(monitoring.PROFILER_ID)
+    return None
+
+
 class FunctionTiming:
     def __init__(self, root):
         self.root = root
@@ -24,9 +32,31 @@ class FunctionTiming:
         self.paused_calls = None
         self.excluded_calls = {}
         self.profiler = cProfile.Profile(self.Clock)
+        self.slot_owner = None
         self.report = None
         self.report_error = None
         self.seen_prompt = False
+
+    def Start(self):
+        if sys.getprofile() is not None or ProfilerSlotOwner() is not None:
+            return False
+        try:
+            self.profiler.enable()
+        except ValueError:
+            if ProfilerSlotOwner() is None:
+                raise
+            # Another tool may have claimed the slot since the initial check.
+            return False
+        self.slot_owner = ProfilerSlotOwner()
+        return True
+
+    def Stop(self):
+        # CPython 3.12 cProfile claims a monitoring slot rather than installing
+        # a sys.getprofile() hook. get_tool() returns the registered name object.
+        owns_slot = self.slot_owner is not None and ProfilerSlotOwner() is self.slot_owner
+        if owns_slot or sys.getprofile() is self.profiler:
+            self.profiler.disable()
+        self.slot_owner = None
 
     def Clock(self):
         now = perf_counter() if self.paused_at is None else self.paused_at
@@ -65,8 +95,13 @@ class FunctionTiming:
             entries[code] = entry
             if isinstance(code, str) or code.co_filename.startswith('<'):
                 continue
+            source = Path(code.co_filename)
+            # A zipped stdlib can use relative filenames such as pdb.py.
+            # Those names do not identify a file in the debuggee's cwd.
+            if not source.is_absolute():
+                continue
             try:
-                path = Path(code.co_filename).resolve().relative_to(self.root)
+                path = source.resolve().relative_to(self.root)
             except (OSError, RuntimeError, ValueError):
                 continue
             project[code] = path

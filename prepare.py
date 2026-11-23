@@ -5,8 +5,8 @@ from pathlib import Path
 
 
 def Main():
-    if sys.version_info[:2] not in ((3, 6), (3, 7), (3, 9), (3, 10)):
-        raise RuntimeError('Use Python 3.6, 3.7, 3.9, or 3.10')
+    if sys.version_info[:2] not in ((3, 6), (3, 7), (3, 9), (3, 10), (3, 12)):
+        raise RuntimeError('Use Python 3.6, 3.7, 3.9, 3.10, or 3.12')
     root = Path(__file__).resolve().parent
     target = root / 'vendor' / '{}-py{}{}'.format(sys.platform, *sys.version_info[:2])
     if target.exists():

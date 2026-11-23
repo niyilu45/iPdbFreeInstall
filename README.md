@@ -1,6 +1,7 @@
 # iPdbFreeInstall
 
-Offline ipdb bundles for Linux Python 3.6, 3.7, 3.9, and 3.10.
+Offline ipdb bundles for Linux Python 3.6, 3.7, 3.9, 3.10, and 3.12,
+and for Windows Python 3.12.
 Python itself is not included. Use the interpreter already on your machine.
 
 ## Download and run
@@ -25,6 +26,13 @@ The Linux bundles contain pure-Python wheels and include pexpect/ptyprocess.
 | 3.7 | dist/ipdb-linux-py37.zip | 7.34.0 |
 | 3.9 | dist/ipdb-linux-py39.zip | 8.18.1 |
 | 3.10 | dist/ipdb-linux-py310.zip | 8.18.1 |
+| 3.12 (Linux) | dist/ipdb-linux-py312.zip | 8.39.0 |
+| 3.12 (Windows) | dist/ipdb-win32-py312.zip | 8.39.0 |
+
+On Windows, extract `ipdb-win32-py312.zip` and run `ipdb.cmd my.py` or
+`ipdbVim.cmd my.py` from cmd. If `python` selects a different interpreter,
+set `IPDB_PYTHON` to the full path of your Python 3.12 `python.exe`.
+On Linux or WSL, use `IPDB_PYTHON=python3.12 sh ipdb.sh my.py`.
 
 All bundles include ipdb 0.13.13, dependency metadata, upstream licenses,
 requirements.lock, and wheel-sha256.json. SHA256SUMS covers the archives.
@@ -85,23 +93,25 @@ This writes vendor/linux-py37 without changing global Python packages.
 On Windows, prepare with your Windows interpreter and run ipdb.cmd.
 Linux bundles are not Windows dependency bundles.
 
-## Rebuild Linux archives
+## Rebuild offline archives
 
 On the build machine, Python 3.9 and pip are required:
 
     python build_linux.py
+    python build_linux.py --platform win32 3.12
 
-The builder evaluates dependency markers for each target Linux/Python
+The builder evaluates dependency markers for each target OS and Python
 combination, checks Requires-Python and dependency version constraints,
-and includes only pure-Python wheels. It downloads from the HTTPS Aliyun
-mirror. Build artifacts are stored in build/ and archives in dist/.
+and includes only pure-Python wheels. It uses PyPI by default and accepts
+`--index-url` for an alternative index. Build artifacts are stored in build/
+and archives in dist/.
 
 ## Validation limits
 
-Archive integrity and target dependency metadata are checked during build.
-Native Linux execution and Python 3.6/3.7/3.10 runtime tests have not been
-performed in the Windows build environment. Report the full traceback,
-Python version, and archive name if a target runtime issue occurs.
+`python verify_bundles.py` checks archive integrity and target dependency
+metadata. CI tests the extracted archives without installing dependencies.
+Report the full traceback, Python version, and archive name if a target
+runtime issue occurs.
 
 Upstream: https://pypi.org/project/ipdb/ and https://github.com/gotcha/ipdb
 
@@ -137,7 +147,7 @@ variable inspection, toggling, program output, and debugger exit.
 ## PuDB mode
 
 The offline archives now include PuDB: version 2020.1 for Python 3.6 and
-2022.1 for Python 3.7/3.9/3.10, with Urwid 2.1.2 in pure-Python mode.
+2022.1 for Python 3.7/3.9/3.10/3.12, with Urwid 2.1.2 in pure-Python mode.
 No additional installation is required.
 
     IPDB_PYTHON=python3.7 sh ipdb.sh --pudb /path/to/main.py
@@ -459,7 +469,7 @@ Continue mode skips IPython's stepping-only frame inspection while retaining
 normal breakpoint evaluation, conditions, ignore counts and temporary breaks.
 Step/next/return behavior is unchanged. Continuing without breakpoints already
 disables Python tracing; this optimization targets runs with breakpoints.
-Python 3.6-3.10 still use tracing when breakpoints are present, so they cannot
+The supported Python versions still use tracing when breakpoints are present, so they cannot
 be expected to match normal execution speed, especially in tight Python loops.
 
 Run `python benchmark_speed.py` from a source checkout for a repeatable comparison
@@ -561,9 +571,9 @@ use `sh ipdbVim.sh my.py` with Windows Python. WSL tabs use `./ipdbVim.sh my.py`
 with Linux Python, Vim, and tmux.
 This always selects system Vim mode, and respects IPDB_PYTHON like ipdb.cmd.
 Native vim.exe must be on PATH; no WSL or tmux is needed on Windows. The selected
-Python must have the Windows debugger dependencies (an existing ipdb installation
-or a matching vendor/win32-pyXY prepared using `python prepare.py`). Linux vendor
-packages are not Windows dependency bundles.
+Python 3.12 can use the Windows offline archive directly. For older versions,
+use an existing ipdb installation or prepare matching Windows dependencies
+with `python prepare.py`. Linux vendor packages are not Windows dependency bundles.
 
 If wt.exe is on PATH, a new Windows Terminal window contains upper Vim and lower
 ipdb panes. Use your Windows Terminal pane-switch shortcuts between them, and

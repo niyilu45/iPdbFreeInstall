@@ -1,7 +1,8 @@
 ipdb==0.13.13
 ipython==7.16.3; python_version == "3.6"
 ipython==7.34.0; python_version == "3.7"
-ipython==8.18.1; python_version >= "3.9"
+ipython==8.18.1; python_version >= "3.9" and python_version < "3.12"
+ipython==8.39.0; python_version == "3.12"
 jedi==0.17.2; python_version == "3.6"
 pudb==2020.1; python_version == "3.6"
 pudb==2022.1; python_version > "3.6"

@@ -144,9 +144,9 @@ class CommandTests(unittest.TestCase):
             path = Path(directory) / 'display_sample.py'
             path.write_text('values = [1]\nvalues[0] = 2\nfinished = True\n')
             output = io.StringIO()
-            debugger = Pdb(stdin=io.StringIO(), stdout=output)
+            commands = io.StringIO('disp values[0]\nnext\ndisp values[0]\nnext\nquit\n')
+            debugger = Pdb(stdin=commands, stdout=output)
             debugger.use_rawinput = False
-            debugger.cmdqueue = ['disp values[0]', 'next', 'disp values[0]', 'next', 'quit']
             debugger.run(compile(path.read_text(), str(path), 'exec'), {})
             text = output.getvalue()
             self.assertIn('NameError:', text)

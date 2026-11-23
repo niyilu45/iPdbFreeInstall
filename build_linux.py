@@ -1,8 +1,8 @@
-"""Build Linux portable bundles from pure-Python wheels with target markers."""
+"""Build portable bundles from pure-Python wheels with target markers."""
+import argparse
 import email
 import hashlib
 import json
-import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -14,20 +14,25 @@ from pip._vendor.packaging.specifiers import SpecifierSet
 from pip._vendor.packaging.utils import canonicalize_name
 
 ROOT = Path(__file__).resolve().parent
+VERSIONS = ('3.6', '3.7', '3.9', '3.10', '3.12')
 
 
-def Build(version):
-    tag = 'linux-py' + version.replace('.', '')
+def Build(version, platform='linux', index_url='https://pypi.org/simple/'):
+    if version not in VERSIONS:
+        raise ValueError('Unsupported Python version: ' + version)
+    tag = platform + '-py' + version.replace('.', '')
     wheels = ROOT / 'build' / tag
     wheels.mkdir(parents=True, exist_ok=True)
     env = default_environment()
-    env.update(python_version=version, python_full_version=version + '.0', sys_platform='linux', os_name='posix', platform_system='Linux', extra='')
-    ipython = {'3.6': '7.16.3', '3.7': '7.34.0', '3.9': '8.18.1', '3.10': '8.18.1'}[version]
-    pending = [Requirement('pyte==0.8.0'), Requirement('ipdb==0.13.13'), Requirement('ipython==' + ipython)]
-    pending.extend([Requirement('pudb==' + ('2020.1' if version == '3.6' else '2022.1')),
-                    Requirement('urwid==2.1.2'), Requirement('urwid-readline==0.13')])
-    if version == '3.6':
-        pending.append(Requirement('jedi==0.17.2'))
+    is_windows = platform == 'win32'
+    env.update(python_version=version, python_full_version=version + '.0', sys_platform=platform,
+               os_name='nt' if is_windows else 'posix', platform_system='Windows' if is_windows else 'Linux', extra='')
+    pending = [Requirement(line) for line in (ROOT / 'requirements.txt').read_text().splitlines() if line.strip()]
+    wheel_sources = [wheels, ROOT / 'vendor_wheels']
+    if version == '3.12':
+        if is_windows:
+            wheel_sources.append(ROOT / 'build' / 'linux-py312')
+        wheel_sources.append(ROOT / 'build' / 'linux-py310')
     selected = {}
     constraints = {}
     while pending:
@@ -42,16 +47,18 @@ def Build(version):
                 raise RuntimeError('Dependency conflict: ' + name + spec)
             continue
         cached = []
-        for candidate in list(wheels.glob('*.whl')) + list((ROOT / 'vendor_wheels').glob('*.whl')):
+        for candidate in (wheel for source in wheel_sources for wheel in sorted(source.glob('*.whl'))):
             with zipfile.ZipFile(candidate) as z:
                 metadata = email.message_from_bytes(z.read(next(n for n in z.namelist() if n.endswith('.dist-info/METADATA'))))
-            if canonicalize_name(metadata['Name']) == name and SpecifierSet(spec).contains(metadata['Version']):
+            if (canonicalize_name(metadata['Name']) == name
+                    and SpecifierSet(spec).contains(metadata['Version'])
+                    and SpecifierSet(metadata.get('Requires-Python', '')).contains(version + '.0')):
                 cached.append(candidate)
         if cached:
             if cached[0].parent != wheels:
                 shutil.copyfile(cached[0], wheels / cached[0].name)
         else:
-            subprocess.check_call([sys.executable, '-m', 'pip', 'download', '--no-deps', '--only-binary=:all:', '--python-version', version, '--platform', 'any', '--dest', str(wheels), '--index-url', 'https://mirrors.aliyun.com/pypi/simple/', '--disable-pip-version-check', name + spec])
+            subprocess.check_call([sys.executable, '-m', 'pip', 'download', '--no-deps', '--only-binary=:all:', '--python-version', version, '--platform', 'any', '--dest', str(wheels), '--index-url', index_url, '--disable-pip-version-check', name + spec])
         matches = []
         for path in wheels.glob('*.whl'):
             with zipfile.ZipFile(path) as z:
@@ -81,7 +88,7 @@ def Build(version):
                             target.write_bytes(z.read(info))
                     continue
                 z.extract(info, vendor)
-    for filename in ('portable_ipdb.py', 'bundle_loader.py', 'launch_mode.py', 'source_theme.py', 'source_browser.py', 'source_panes.py', 'source_vim.py', 'source_gvim.py', 'tmux_resize.py', 'windows_vim.py', 'source_vim.vim', 'terminal_keys.py', 'debugger_speed.py', 'reload_code.py', 'function_timing.py', 'plot_events.py', 'output_history.py', 'split_ipdb.py', 'gdb_commands.py', 'completion.py', 'checkpoints.py', 'ipdb.sh', 'ipdbVim.sh', 'ipdbVim.cmd', 'ipdbGvim.sh', 'ipdbGvim.cmd', 'README.md'):
+    for filename in ('portable_ipdb.py', 'bundle_loader.py', 'launch_mode.py', 'source_theme.py', 'source_browser.py', 'source_panes.py', 'source_vim.py', 'source_gvim.py', 'tmux_resize.py', 'windows_vim.py', 'source_vim.vim', 'terminal_keys.py', 'debugger_speed.py', 'reload_code.py', 'function_timing.py', 'plot_events.py', 'output_history.py', 'split_ipdb.py', 'gdb_commands.py', 'completion.py', 'checkpoints.py', 'ipdb.sh', 'ipdb.cmd', 'ipdbVim.sh', 'ipdbVim.cmd', 'ipdbGvim.sh', 'ipdbGvim.cmd', 'README.md'):
         data = (ROOT / filename).read_bytes()
         if filename.endswith(('.sh', '.vim')):
             data = data.replace(b'\r\n', b'\n')
@@ -102,6 +109,11 @@ def Build(version):
 
 
 if __name__ == '__main__':
-    os.environ['NO_PROXY'] = '*'
-    for version in sys.argv[1:] or ['3.6', '3.7', '3.9', '3.10']:
-        Build(version)
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('versions', nargs='*')
+    parser.add_argument('--platform', default='linux', choices=('linux', 'win32'))
+    parser.add_argument('--index-url', default='https://pypi.org/simple/')
+    args = parser.parse_args()
+    defaults = ('3.12',) if args.platform == 'win32' else VERSIONS
+    for version in args.versions or defaults:
+        Build(version, args.platform, args.index_url)

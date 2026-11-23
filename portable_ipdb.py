@@ -4,8 +4,8 @@ from pathlib import Path
 
 
 def Activate():
-    if sys.version_info[:2] not in ((3, 6), (3, 7), (3, 9), (3, 10)):
-        raise RuntimeError('Supported Python versions: 3.6, 3.7, 3.9, 3.10')
+    if sys.version_info[:2] not in ((3, 6), (3, 7), (3, 9), (3, 10), (3, 12)):
+        raise RuntimeError('Supported Python versions: 3.6, 3.7, 3.9, 3.10, 3.12')
     from bundle_loader import Locate
     base = Path(__file__).resolve().parent
     bundled = True

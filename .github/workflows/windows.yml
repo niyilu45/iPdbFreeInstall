@@ -1,0 +1,21 @@
+name: Windows standalone bundle
+on: [push, workflow_dispatch]
+jobs:
+  terminal:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          architecture: x64
+      - name: Check the offline bundle and command launcher
+        shell: pwsh
+        run: |
+          $bundleDirectory = Join-Path $env:RUNNER_TEMP 'ipdb-win32-py312'
+          Expand-Archive -LiteralPath 'dist/ipdb-win32-py312.zip' -DestinationPath $env:RUNNER_TEMP
+          Copy-Item -LiteralPath @('test_loader.py', 'test_gdb.py', 'test_completion.py', 'test_reload.py', 'test_speed.py') -Destination $bundleDirectory
+          & (Join-Path $bundleDirectory 'ipdb.cmd') --check
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Set-Location -LiteralPath $bundleDirectory
+          python -S -B -m unittest test_loader test_gdb test_completion test_reload test_speed -v

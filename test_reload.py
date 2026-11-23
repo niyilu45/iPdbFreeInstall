@@ -162,6 +162,38 @@ class ReloadTests(unittest.TestCase):
         self.assertIsNone(Relocate(['value = 1\n'], ambiguous, 1))
         self.assertIsNone(Relocate(ambiguous, ['value = 1\n'], 1))
 
+    def test_saved_module_restart_reloads_entry_and_package_import(self):
+        with tempfile.TemporaryDirectory() as directory:
+            package = Path(directory) / 'reload_fixture'
+            package.mkdir()
+            (package / '__init__.py').write_text('from . import helper\n')
+            helper = package / 'helper.py'
+            helper.write_text('VALUE = 10\n')
+            entry = package / '__main__.py'
+            source = 'from . import helper\nprint("MODULE_RESULT", "A", helper.VALUE)\n'
+            entry.write_text(source)
+            for path in (entry, helper):
+                py_compile.compile(str(path), doraise=True)
+            edits = [(entry, source.replace('"A"', '"B"')), (helper, 'VALUE = 20\n')]
+            commands = ['c']
+            for path, text in edits:
+                stamp = path.stat().st_mtime
+                commands.extend([
+                    "!open({!r}, 'w').write({!r})".format(str(path), text),
+                    "!__import__('os').utime({!r}, ({!r}, {!r}))".format(str(path), stamp, stamp),
+                ])
+            commands.extend(['r', 'c', 'q', ''])
+            launcher = Path(__file__).with_name('portable_ipdb.py').resolve()
+            result = subprocess.run([sys.executable, '-B', str(launcher), '--plain', '-m', package.name],
+                input='\n'.join(commands), stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT, universal_newlines=True, timeout=30, cwd=directory,
+                env=dict(os.environ, PYTHONPATH=directory, IPY_TEST_SIMPLE_PROMPT='1', IPYTHONDIR=directory))
+            self.assertEqual(result.returncode, 0, result.stdout)
+            self.assertIn('MODULE_RESULT A 10', result.stdout)
+            self.assertIn('MODULE_RESULT B 20', result.stdout)
+            self.assertIn('Reloading saved project source', result.stdout)
+            self.assertNotIn('Traceback', result.stdout)
+
     def test_saved_script_and_import_reload_preserving_breakpoint(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

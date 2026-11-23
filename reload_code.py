@@ -266,18 +266,21 @@ def Install():
         """rtime [args...]: restart with function timing on. Alias: rt."""
         return Restart(self, argument, True)
 
-    def Wrap(original, module_mode):
-        def Execute(self, filename):
+    def ModuleFilename(name):
+        spec = importlib.util.find_spec(name)
+        return spec.origin if spec else None
+
+    def Wrap(original, source_filename):
+        def Execute(self, target):
             if not hasattr(self, '_portable_initial_modules'):
                 self._portable_initial_modules = set(sys.modules)
                 self._portable_launch_directory = Path.cwd()
-                if module_mode:
-                    spec = importlib.util.find_spec(filename)
-                    root = Path(spec.origin).resolve().parent if spec and spec.origin else Path.cwd()
-                else:
-                    root = Path(filename).resolve().parent
-                self._portable_project_root = root
+                filename = source_filename(target)
+                self._portable_project_root = (Path(filename).resolve().parent if filename
+                                               else self._portable_launch_directory)
             if getattr(self, '_portable_reload_pending', False):
+                # Modern pdb module targets cache their code on first access.
+                # Refresh before resolving the new target in the native runner.
                 Refresh(self)
                 self._portable_reload_pending = False
                 self.message('Reloading saved project source from {}'.format(self._portable_project_root))
@@ -314,14 +317,13 @@ def Install():
                         # Keep the same handler across continue and step commands.
                         self.nosigint = True
                 if getattr(self, '_portable_timing_enabled', False):
-                    if sys.getprofile() is None:
-                        from function_timing import FunctionTiming
-                        timing = FunctionTiming(self._portable_project_root)
-                        self._portable_timing = timing
-                        timing.profiler.enable()
+                    from function_timing import FunctionTiming
+                    candidate = FunctionTiming(self._portable_project_root)
+                    if candidate.Start():
+                        timing = self._portable_timing = candidate
                     else:
                         self.error('Function timing skipped because another profiler is active.')
-                result = original(self, filename)
+                result = original(self, target)
                 completed = True
                 return result
             except SystemExit as error:
@@ -346,8 +348,7 @@ def Install():
                 finally:
                     self._portable_execution_active = False
                     if timing is not None:
-                        if sys.getprofile() is timing.profiler:
-                            timing.profiler.disable()
+                        timing.Stop()
                         self._portable_timing = None
                         if not (getattr(self, '_portable_reload_pending', False)
                                 or getattr(self, '_user_requested_quit', False)):
@@ -364,6 +365,9 @@ def Install():
     Pdb.interaction = Interaction
     Pdb._cmdloop = CommandLoop
     Pdb.do_restart = Run
-    Pdb._runscript = Wrap(Pdb._runscript, False)
-    if hasattr(Pdb, '_runmodule'):
-        Pdb._runmodule = Wrap(Pdb._runmodule, True)
+    if hasattr(Pdb, '_run'):
+        Pdb._run = Wrap(Pdb._run, lambda target: target.filename)
+    else:
+        Pdb._runscript = Wrap(Pdb._runscript, lambda filename: filename)
+        if hasattr(Pdb, '_runmodule'):
+            Pdb._runmodule = Wrap(Pdb._runmodule, ModuleFilename)

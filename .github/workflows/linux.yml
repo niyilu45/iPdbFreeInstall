@@ -15,6 +15,8 @@ jobs:
             tag: py39
           - python: '3.10'
             tag: py310
+          - python: '3.12'
+            tag: py312
     steps:
       - uses: actions/checkout@v4
       - name: Extract matching offline bundle
@@ -41,26 +43,32 @@ jobs:
 
   system-vim:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - python: '3.9'
+            tag: py39
+          - python: '3.12'
+            tag: py312
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.9'
+          python-version: ${{ matrix.python }}
       - run: sudo apt-get update && sudo apt-get install -y vim-gtk3 tmux xvfb
       - run: |
-          unzip -q dist/ipdb-linux-py39.zip -d /tmp/vim-test
-          cp test_source_vim.py /tmp/vim-test/ipdb-linux-py39/
-          cp test_tmux_focus.py /tmp/vim-test/ipdb-linux-py39/
-          cp repro_source_render.py /tmp/vim-test/ipdb-linux-py39/
-          cp test_gvim.py /tmp/vim-test/ipdb-linux-py39/
-          cd /tmp/vim-test/ipdb-linux-py39
+          bundle="ipdb-linux-${{ matrix.tag }}"
+          unzip -q "dist/$bundle.zip" -d /tmp/vim-test
+          cp test_source_vim.py test_tmux_focus.py repro_source_render.py test_gvim.py "/tmp/vim-test/$bundle/"
+          cd "/tmp/vim-test/$bundle"
           python -B -m unittest test_source_vim test_tmux_focus -v
           xvfb-run -a python -B -m unittest test_gvim -v
           python repro_source_render.py --output /tmp/ipdb-render-ci
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: source-render-screens
+          name: source-render-screens-${{ matrix.tag }}
           path: /tmp/ipdb-render-ci
 
   matplotlib-gui:
