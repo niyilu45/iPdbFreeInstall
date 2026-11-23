@@ -44,8 +44,10 @@ class WindowsVimTests(unittest.TestCase):
             config.update(debugger=['python', 'portable_ipdb.py', '--plain', 'space file.py', 'a&b'], cwd=directory)
             (root / 'ready').write_text('ready')
             with mock.patch('windows_vim.subprocess.Popen') as call, \
-                    mock.patch('source_vim.WaitForDebugger', return_value=7), mock.patch('builtins.input', return_value=''):
+                    mock.patch('source_vim.WaitForDebugger', return_value=7), \
+                    mock.patch('builtins.input', side_effect=['\x1b[O', '']) as read:
                 self.assertEqual(windows_vim.Debug(config), 7)
+            self.assertEqual(read.call_count, 2)
             self.assertEqual(call.call_args[0][0], config['debugger'])
             self.assertEqual((root / 'result').read_text(), '7')
             self.assertTrue((root / 'done').exists())

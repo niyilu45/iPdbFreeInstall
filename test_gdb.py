@@ -128,6 +128,18 @@ class CommandTests(unittest.TestCase):
         self.assertIn('restart, return', output.getvalue())
         self.assertEqual(Translate('!down = 3'), '!down = 3')
 
+    def test_conemu_escape_sequences_do_not_become_commands(self):
+        from unittest import mock
+        debugger = Pdb(stdin=io.StringIO(), stdout=io.StringIO())
+        debugger.lastcmd = 'continue'
+        with mock.patch.dict(os.environ, {'ConEmuPID': '42'}), mock.patch('sys.platform', 'win32'), \
+                mock.patch('sys.stdin.isatty', return_value=False):
+            self.assertIsNone(debugger.onecmd(debugger.precmd('\x1b[I\x1b[O\x1b[A')))
+            self.assertEqual(debugger.lastcmd, 'continue')
+            self.assertEqual(debugger.precmd('\x1b[Ip value\x1b[O'), 'p value')
+            self.assertEqual(debugger.precmd('\x1bq'), 'quit')
+            self.assertEqual(debugger.precmd(r'p "\x1b[O"'), r'p "\x1b[O"')
+
     def test_abbreviated_display_management(self):
         debugger = Pdb(stdin=io.StringIO(), stdout=io.StringIO())
         debugger.curframe = sys._getframe()

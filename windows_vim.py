@@ -42,7 +42,8 @@ def Debug(config):
         Path(config['result']).write_text(str(code))
         print('[ipdb] Debugger exited with status {}. Press Enter to finish. Unsaved Vim buffers stay open.'.format(code), flush=True)
         try:
-            input()
+            while input():
+                pass
         except (EOFError, KeyboardInterrupt):
             pass
         Path(config['close']).write_text('close')

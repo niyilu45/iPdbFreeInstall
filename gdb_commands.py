@@ -1,5 +1,7 @@
 """GDB-style command adapters for IPython's Python debugger."""
+import os
 import re
+import sys
 
 
 COMMANDS = (
@@ -16,6 +18,9 @@ ALIASES = {
     'n': 'next', 'p': 'print', 'q': 'quit', 'r': 'run', 'rt': 'rtime', 's': 'step',
     'u': 'up', 'unt': 'until', 'w': 'where',
 }
+# The ConEmu connector can pass focus reports and keyboard sequences to a
+# Windows line reader as text. A standalone Escape can also precede a command.
+CONEMU_ESCAPE = re.compile(r'\x1b(?:\[[0-?]*[ -/]*[@-~]?|O[@-~])?')
 
 
 def Resolve(word, choices, aliases=None):
@@ -248,12 +253,17 @@ def Install():
     native_commands = {name[3:] for name in dir(Pdb) if name.startswith('do_')}
 
     def Noop(self, argument):
-        pass
+        if argument:
+            self.lastcmd = argument
 
     def Down(self, argument):
         self.error('down is disabled; use frame N to select a stack frame')
 
     def Precmd(self, line):
+        if '\x1b' in line and sys.platform == 'win32' and os.environ.get('ConEmuPID') and not sys.stdin.isatty():
+            line = CONEMU_ESCAPE.sub('', line)
+            if not line.strip():
+                return ('_portable_noop ' + self.lastcmd).rstrip()
         try:
             translated = Translate(line, native_commands)
             command, argument = SplitArgument(translated)
