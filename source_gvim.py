@@ -25,10 +25,10 @@ def Run(arguments):
                             '-c', "execute 'redir! > ' . fnameescape('{}')".format(target),
                             '-c', 'silent version', '-c', 'redir END', '-c', 'qa!'],
                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True, timeout=10)
-            version = version_file.read_text(errors='replace')
+            version = version_file.read_bytes()
     else:
-        version = subprocess.check_output([gvim, '--version'], universal_newlines=True, timeout=10)
-    if any(feature not in version for feature in ('+timers', '+eval', '+signs')):
+        version = subprocess.check_output([gvim, '--version'], timeout=10)
+    if any(feature not in version for feature in (b'+timers', b'+eval', b'+signs')):
         raise RuntimeError('System gVim needs +timers, +eval and +signs.')
     from source_vim import VimCommand
     base = Path(__file__).resolve().parent

@@ -102,8 +102,8 @@ def Run(arguments):
         raise RuntimeError('System vim.exe was not found on PATH. Add your Vim installation directory to PATH.')
     if not arguments:
         raise RuntimeError('Usage: ipdbVim.cmd script.py [arguments]')
-    version = subprocess.check_output([vim, '--version'], universal_newlines=True)
-    if any(feature not in version for feature in ('+timers', '+eval', '+signs')):
+    version = subprocess.check_output([vim, '--version'])
+    if any(feature not in version for feature in (b'+timers', b'+eval', b'+signs')):
         raise RuntimeError('System Vim needs +timers, +eval and +signs (Vim 8 or newer)')
     base = Path(__file__).resolve().parent
     terminal = shutil.which('wt.exe')

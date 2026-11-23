@@ -3,6 +3,27 @@ import sys
 from pathlib import Path
 
 
+def OpenIpdbConfig(filename, mode='r'):
+    import io
+    import locale
+
+    if mode == 'rb':
+        return open(filename, mode)
+    data = Path(filename).read_bytes()
+    try:
+        text = data.decode('utf-8-sig')
+    except UnicodeDecodeError:
+        encoding = locale.getpreferredencoding(False)
+        try:
+            text = data.decode(encoding)
+        except UnicodeDecodeError as error:
+            raise UnicodeError('Cannot decode ipdb configuration {} as UTF-8 or {}: {}'.format(
+                filename, encoding, error)) from error
+    stream = io.StringIO(text, newline=None)
+    stream.name = str(filename)
+    return stream
+
+
 def Activate():
     if sys.version_info[:2] not in ((3, 6), (3, 7), (3, 9), (3, 10), (3, 12)):
         raise RuntimeError('Supported Python versions: 3.6, 3.7, 3.9, 3.10, 3.12')
@@ -48,6 +69,9 @@ if __name__ == '__main__' and sys.argv[1:] == ['--check']:
     sys.exit(0)
 if __name__ == '__main__':
     print('[ipdb] Loading debugger...', file=sys.stderr, flush=True)
+import ipdb.__main__ as ipdb_main
+# Scope the encoding fallback to ipdb's config reader, including embedded set_trace().
+ipdb_main.open = OpenIpdbConfig
 from debugger_speed import Install as InstallSpeed
 InstallSpeed()
 from reload_code import Install as InstallReload

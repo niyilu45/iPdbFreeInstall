@@ -26,6 +26,17 @@ class WindowsVimTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, 'exited before initializing'):
                 windows_vim.WaitReady(config)
 
+    def test_version_probe_accepts_non_ascii_output(self):
+        vim = 'vim.exe'
+        version = b'Compiled by \xe5\x85\x85\n+timers +eval +signs\n'
+        with mock.patch('sys.stdin.isatty', return_value=True), mock.patch('sys.stdout.isatty', return_value=True), \
+                mock.patch('windows_vim.shutil.which', return_value=vim), \
+                mock.patch('windows_vim.subprocess.check_output', return_value=version) as probe, \
+                mock.patch('windows_vim.tempfile.TemporaryDirectory', side_effect=RuntimeError('probe passed')):
+            with self.assertRaisesRegex(RuntimeError, 'probe passed'):
+                windows_vim.Run(['sample.py'])
+            probe.assert_called_once_with([vim, '--version'])
+
     def test_debug_preserves_arguments_and_exit_status(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

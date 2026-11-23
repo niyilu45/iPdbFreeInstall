@@ -54,6 +54,37 @@ class LoaderTests(unittest.TestCase):
             self.assertIn('RESULT 42', result.stdout)
             self.assertNotIn('ModuleNotFoundError', result.stdout)
 
+    def test_utf8_config_allows_plain_startup_in_legacy_locale(self):
+        launcher = Path(__file__).resolve().parent / 'portable_ipdb.py'
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            script = root / 'sample.py'
+            script.write_text('print("CONFIG_STARTUP_OK")\n')
+            (root / 'setup.cfg').write_text('# \u5145\n[ipdb]\ncontext = 3\n', encoding='utf-8-sig')
+            (root / '.ipdb').write_text('# \u5145\ncontext = 4\n', encoding='utf-8')
+            (root / 'pyproject.toml').write_text('# \u5145\n[tool.ipdb]\ncontext = 5\n', encoding='utf-8')
+            env = dict(os.environ, HOME=directory, USERPROFILE=directory, IPYTHONDIR=directory,
+                       IPY_TEST_SIMPLE_PROMPT='1', PYTHONUTF8='0', PYTHONCOERCECLOCALE='0', LC_ALL='C')
+            for key in ('IPDB_CONFIG', 'IPDB_CONTEXT_SIZE'):
+                env.pop(key, None)
+            result = subprocess.run([sys.executable, '-B', str(launcher), '--plain', str(script)],
+                                    input=b'c\nq\n', stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                    cwd=directory, env=env, timeout=30)
+            output = result.stdout.decode('ascii', 'backslashreplace')
+            self.assertEqual(result.returncode, 0, output)
+            self.assertIn('CONFIG_STARTUP_OK\nThe program finished', output.replace('\r\n', '\n'))
+
+    def test_ipdb_config_falls_back_to_legacy_windows_encoding(self):
+        from portable_ipdb import ipdb_main
+        with tempfile.TemporaryDirectory() as directory:
+            settings = Path(directory, 'legacy.ipdb')
+            settings.write_text('context = 6\nname = \u5145\n', encoding='gbk')
+            with mock.patch.dict(os.environ, {'IPDB_CONFIG': str(settings), 'HOME': directory}), \
+                    mock.patch('locale.getpreferredencoding', return_value='cp936'):
+                parser = ipdb_main.get_config()
+            self.assertEqual(parser.getint('ipdb', 'context'), 6)
+            self.assertEqual(parser.get('ipdb', 'name'), '\u5145')
+
     def MakeArchive(self, base, bad=False):
         (base / 'dist').mkdir()
         prefix = 'ipdb-linux-py39/vendor/linux-py39/'
