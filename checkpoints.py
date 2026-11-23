@@ -134,6 +134,14 @@ class Checkpoints:
                 signal.signal(signal.SIGINT, previous)
                 signal.signal(signal.SIGCHLD, child_signal)
                 debugger.message('Restored checkpoint {}'.format(number))
+                timing = getattr(debugger, '_portable_timing', None)
+                if timing is not None:
+                    from function_timing import UpdateTimingReport
+                    # Restored counters may precede the saved report on disk.
+                    # Publish the restored branch without overwriting its source branch.
+                    timing.report = None
+                    timing.report_error = None
+                    UpdateTimingReport(debugger, timing, allow_empty=True, announce=True)
                 debugger.print_stack_entry(debugger.stack[debugger.curindex])
                 return
 

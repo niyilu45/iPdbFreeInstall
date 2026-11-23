@@ -46,8 +46,10 @@ control returns to Python.
 
 Enter `rt` (or `rtime`) at the ipdb prompt to restart with function timing
 enabled. Use `c` to run. Each completed run prints its top 20 project functions
-by cumulative time and the path to a unique `ipdCache/callgrind.out.*` report.
-`ipdCache` is relative to the directory where you launched ipdb.
+by cumulative time. A breakpoint, Ctrl+C pause, or the end of the run writes
+the current data to the same `ipdCache/callgrind.out.*` report. `ipdCache` is
+relative to the directory where you launched ipdb. Reopen or reload the printed
+path in your viewer after each stop.
 
 | Command | Result |
 | --- | --- |
@@ -56,8 +58,10 @@ by cumulative time and the path to a unique `ipdCache/callgrind.out.*` report.
 | `i time NAME` | Show functions whose names contain `NAME` |
 | `r` | Restart with timing disabled and keep the last completed report |
 
-At a breakpoint or after Ctrl+C, the table shows completed calls so far. If the
-current run has no completed calls yet, it can show the last completed run.
+At a breakpoint or after Ctrl+C, the table and report show completed calls so
+far. Calls still on the stack are included after they return. Restoring a Linux
+checkpoint restores its saved counters and starts a separate report file, so
+reports from other branches remain available.
 The table reports call count, self time and cumulative time in seconds. Timing
 uses main-thread wall time and excludes time waiting at the debug prompt.
 

@@ -406,6 +406,81 @@ with tempfile.TemporaryDirectory() as directory:
                     child.sendline('q')
                 child.close(force=True)
 
+    @unittest.skipUnless(sys.platform.startswith('linux'), 'Linux fork required')
+    def test_checkpoint_restores_timing_without_overwriting_other_report(self):
+        import pexpect
+        launcher = Path(__file__).resolve().with_name('portable_ipdb.py')
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            script = root / 'sample.py'
+            script.write_text('def TimedChild():\n'
+                              '    return 21\n'
+                              'def TimedLeaf():\n'
+                              '    return TimedChild()\n'
+                              'value = TimedLeaf()\n'
+                              'value += TimedLeaf()\n'
+                              'print(value)\n')
+            child = pexpect.spawn(sys.executable,
+                ['-B', str(launcher), '--plain', str(script)], cwd=directory,
+                env=dict(os.environ, TERM='dumb', IPYTHONDIR=directory),
+                encoding='utf-8', timeout=10)
+
+            def Command(command):
+                child.sendline(command)
+                child.expect_exact('ipdb> ')
+                return child.before
+
+            def ReportPath(output):
+                prefix = 'Callgrind report: '
+                paths = [Path(line[len(prefix):]) for line in output.splitlines()
+                         if line.startswith(prefix)]
+                self.assertEqual(len(paths), 1, output)
+                self.assertEqual(paths[0].parent, root / 'ipdCache')
+                return paths[0]
+
+            def ReadReport(path, count):
+                text = path.read_text(encoding='utf-8')
+                self.assertTrue(text.startswith('# callgrind format\n'))
+                marker = '\nfn=TimedLeaf:'
+                self.assertIn(marker, text)
+                leaf = text.split(marker, 1)[1].split('\n\n', 1)[0]
+                self.assertRegex(leaf, r'(?m)^cfn=TimedChild:\d+\ncalls={} \d+$'.format(count))
+                return text
+
+            try:
+                child.expect_exact('ipdb> ')
+                Command('rt')
+                Command('b 6')
+                Command('b 7')
+                original = ReportPath(Command('c'))
+                ReadReport(original, 1)
+                self.assertIn('Checkpoint 1 created', Command('check'))
+                Command('c')
+                advanced = ReadReport(original, 2)
+                self.assertEqual(set(original.parent.glob('callgrind.out.*')), {original})
+
+                output = Command('restart 1')
+                self.assertIn('Restored checkpoint 1', output)
+                restored = ReportPath(output)
+                self.assertNotEqual(restored, original)
+                ReadReport(restored, 1)
+                self.assertEqual(original.read_text(encoding='utf-8'), advanced)
+                self.assertIn('VALUE=21', Command('!print("VALUE=" + str(value))'))
+                self.assertRegex(Command('i time TimedLeaf'), r'(?m)^ +1 +[^\r\n]+\(TimedLeaf\)\r?$')
+
+                Command('c')
+                ReadReport(restored, 2)
+                self.assertEqual(original.read_text(encoding='utf-8'), advanced)
+                self.assertEqual(set(original.parent.glob('callgrind.out.*')), {original, restored})
+                child.sendline('q')
+                child.expect(pexpect.EOF)
+                child.close()
+                self.assertEqual(child.exitstatus, 0)
+            finally:
+                if child.isalive():
+                    child.sendline('q')
+                child.close(force=True)
+
 
 if __name__ == '__main__':
     unittest.main()

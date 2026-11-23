@@ -30,9 +30,14 @@ class ReloadTests(unittest.TestCase):
                           + '\n    TimedLeaf()\n    value = TimedLeaf()\n    time.sleep(0.06)\n    return value\n\n'
                           + 'print("TIMED_WORKLOAD", TimedOuter())\n')
                 breakpoint_line = source.splitlines().index('    time.sleep(0.06)') + 1
+                breakpoint_report = root / 'breakpoint.callgrind'
+                breakpoint_path = root / 'breakpoint-report-path.txt'
                 commands = [
                     "!open({!r}, 'w').write({!r})".format(str(script), source),
                     command, 'tbreak {}'.format(breakpoint_line), 'c',
+                    "!snapshot = next(__import__('pathlib').Path({!r}).glob('callgrind.out.*'))".format(str(launch_dir / 'ipdCache')),
+                    "!open({!r}, 'w').write(str(snapshot))".format(str(breakpoint_path)),
+                    "!open({!r}, 'wb').write(snapshot.read_bytes())".format(str(breakpoint_report)),
                     "!print('TIMING_DEFAULT')", 'i time',
                     "!print('TIMING_ALL')", 'i time all',
                     "!TimedLeaf()", "!print('TIMING_FILTERED')", 'i time Leaf',
@@ -85,7 +90,12 @@ class ReloadTests(unittest.TestCase):
                 report_path = (launch_dir / reports[0].strip()).resolve()
                 self.assertEqual(report_path.parent, (launch_dir / 'ipdCache').resolve())
                 self.assertEqual(list(report_path.parent.glob('callgrind.out.*')), [report_path])
+                self.assertEqual(Path(breakpoint_path.read_text()).resolve(), report_path)
+                paused_report = breakpoint_report.read_text(encoding='utf-8')
+                self.assertRegex(paused_report, r'(?m)^events:\s+Time\s*$')
+                self.assertRegex(paused_report, r'(?m)^fn=TimedLeaf:\d+$')
                 report = report_path.read_text(encoding='utf-8')
+                self.assertNotEqual(paused_report, report)
                 self.assertRegex(report, r'(?m)^events:\s+Time\s*$')
                 self.assertRegex(report, r'(?m)^\d+ \d+$')
                 outer = [section for section in re.split(r'(?m)^fn=', report)

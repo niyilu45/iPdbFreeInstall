@@ -41,10 +41,10 @@ class InputParityTests(unittest.TestCase):
 
         launcher = Path(__file__).with_name('portable_ipdb.py').resolve()
         for mode in ('--plain', '--tui'):
-            for resume in (b'c', b'n'):
-                with self.subTest(mode=mode, resume=resume), tempfile.TemporaryDirectory() as directory:
+            for resume, timed in ((b'c', False), (b'n', False), (b'c', True)):
+                with self.subTest(mode=mode, resume=resume, timed=timed), tempfile.TemporaryDirectory() as directory:
                     script = Path(directory) / 'loop.py'
-                    script.write_text(
+                    source = (
                         'def Inner():\n'
                         '    gate = [True]\n'
                         '    token = 1439811\n'
@@ -57,6 +57,10 @@ class InputParityTests(unittest.TestCase):
                         '    return Inner()\n'
                         'result = Outer()\n'
                         "print('DONE' + '_VALUE', result, flush=True)\n")
+                    if timed:
+                        source = source.replace('token = 1439811', 'token = BeforeLoop()')
+                        source = source.replace('result = Outer()', 'def BeforeLoop():\n    return 1439811\nresult = Outer()')
+                    script.write_text(source)
                     environment = dict(os.environ, TERM='xterm-256color', IPYTHONDIR=directory)
                     pid, master = pty.fork()
                     if pid == 0:
@@ -86,12 +90,23 @@ class InputParityTests(unittest.TestCase):
 
                     try:
                         ReadUntil(b'ipdb> ')
-                        Command(b'n')
-                        Command(b'n')
+                        if timed:
+                            Command(b'rt')
+                        else:
+                            Command(b'n')
+                            Command(b'n')
                         os.write(master, resume + b'\n')
                         ReadUntil(b'LOOP_READY')
                         os.write(master, b'\x03')
                         ReadUntil(b'ipdb> ')
+                        if timed:
+                            cache = Path(directory) / 'ipdCache'
+                            reports = list(cache.glob('callgrind.out.*'))
+                            self.assertEqual(len(reports), 1, reports)
+                            report_path = reports[0]
+                            paused_report = report_path.read_text(encoding='utf-8')
+                            self.assertRegex(paused_report, r'(?m)^events:\s+Time\s*$')
+                            self.assertRegex(paused_report, r'(?m)^fn=BeforeLoop:\d+$')
                         backtrace = Command(b'bt')
                         self.assertRegex(backtrace, br'\* #0 Inner at [^\r\n]+loop\.py:[67]\b')
                         self.assertRegex(backtrace, br'#1 Outer at [^\r\n]+loop\.py:10\b')
@@ -102,6 +117,11 @@ class InputParityTests(unittest.TestCase):
                         os.write(master, b'c\n')
                         done = ReadUntil(b'ipdb> ')
                         self.assertIn(b'DONE_VALUE 1439811', done)
+                        if timed:
+                            self.assertEqual(list(cache.glob('callgrind.out.*')), [report_path])
+                            completed_report = report_path.read_text(encoding='utf-8')
+                            self.assertNotEqual(completed_report, paused_report)
+                            self.assertRegex(completed_report, r'(?m)^fn=Inner:\d+$')
                         os.write(master, b'q\n')
                         deadline = time.monotonic() + 5
                         while time.monotonic() < deadline:

@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import tempfile
 from time import perf_counter
+from uuid import uuid4
 
 
 def Counts(entries):
@@ -23,6 +24,9 @@ class FunctionTiming:
         self.paused_calls = None
         self.excluded_calls = {}
         self.profiler = cProfile.Profile(self.Clock)
+        self.report = None
+        self.report_error = None
+        self.seen_prompt = False
 
     def Clock(self):
         now = perf_counter() if self.paused_at is None else self.paused_at
@@ -90,14 +94,17 @@ class FunctionTiming:
         costs = {code: Microseconds(entries[code].inlinetime) for code in edges}
         directory = directory / 'ipdCache'
         directory.mkdir(parents=True, exist_ok=True)
-        filename = None
+        report_path = self.report or directory / 'callgrind.out.{}.{}'.format(os.getpid(), uuid4().hex)
+        staging = None
         try:
             with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', newline='\n',
-                    dir=str(directory), prefix='callgrind.out.{}.'.format(os.getpid()), delete=False) as stream:
-                filename = Path(stream.name)
+                    dir=str(directory), prefix='.callgrind-', delete=False) as stream:
+                staging = Path(stream.name)
                 stream.write('# callgrind format\nversion: 1\ncreator: Portable ipdb (cProfile)\n')
                 stream.write('positions: line\nevent: Time : Active wall time (microseconds)\nevents: Time\n')
                 stream.write('summary: {}\n'.format(sum(costs.values())))
+                if not edges:
+                    stream.write('\nfl=[Python]\nfn=[No completed calls]\n0 0\n')
                 for code in sorted(edges, key=locations.get):
                     source, line, name = locations[code]
                     stream.write('\nfl={}\nfn={}\n{} {}\n'.format(source, name, line, costs[code]))
@@ -105,14 +112,33 @@ class FunctionTiming:
                         callee_source, callee_line, callee_name = locations[target]
                         stream.write('cfl={}\ncfn={}\ncalls={} {}\n{} {}\n'.format(
                             callee_source, callee_name, count, callee_line, line, cost))
+            os.replace(str(staging), str(report_path))
+            self.report = report_path
         except BaseException:
-            if filename is not None:
+            if staging is not None:
                 try:
-                    filename.unlink()
+                    staging.unlink()
                 except OSError:
                     pass
             raise
-        return filename
+
+
+def UpdateTimingReport(debugger, timing, allow_empty=False, announce=False):
+    rows, entries, project = timing.Snapshot()
+    if rows or allow_empty:
+        first_report = timing.report is None
+        try:
+            timing.SaveReport(debugger._portable_launch_directory, entries, project)
+        except OSError as error:
+            message = 'Could not write Callgrind report: {}'.format(error)
+            if message != timing.report_error:
+                debugger.error(message)
+                timing.report_error = message
+        else:
+            timing.report_error = None
+            if announce and first_report:
+                debugger.message('Callgrind report: {}'.format(timing.report))
+    return rows
 
 
 def Microseconds(seconds):
@@ -139,7 +165,8 @@ def ShowTiming(debugger, argument='', rows=None):
     if rows is None:
         timing = getattr(debugger, '_portable_timing', None)
         rows = timing.Snapshot()[0] if timing is not None else []
-        if not rows:
+        report = timing.report if timing is not None else None
+        if not rows and report is None:
             rows, report = getattr(debugger, '_portable_last_timing', ([], None))
             if rows:
                 status = 'timing enabled' if getattr(debugger, '_portable_timing_enabled', False) else 'timing off'
@@ -151,6 +178,8 @@ def ShowTiming(debugger, argument='', rows=None):
             debugger.message('No completed project calls measured yet.')
         else:
             debugger.message('No function timing data. Use rtime (rt) to start timing.')
+        if report is not None:
+            debugger.message('Callgrind report: {}'.format(report))
         return
 
     if argument and argument != 'all':

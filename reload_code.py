@@ -194,10 +194,12 @@ def Install():
     original_run = Pdb.do_run
     original_set_break = Pdb.set_break
     original_interaction = Pdb.interaction
+    original_cmdloop = Pdb._cmdloop
 
     def Interaction(self, *args, **kwargs):
         timing = getattr(self, '_portable_timing', None)
-        if timing is not None:
+        owns_pause = timing is not None and timing.paused_at is None
+        if owns_pause:
             timing.Pause()
         try:
             return original_interaction(self, *args, **kwargs)
@@ -208,7 +210,24 @@ def Install():
                 raise
             self.message('Reload requested; leaving post-mortem debugging.')
         finally:
-            if timing is not None:
+            if owns_pause:
+                timing.Resume()
+
+    def CommandLoop(self):
+        timing = getattr(self, '_portable_timing', None)
+        if timing is None:
+            return original_cmdloop(self)
+        from function_timing import UpdateTimingReport
+        # Breakpoints with command lists can enter the prompt without interaction().
+        owns_pause = timing.paused_at is None
+        if owns_pause:
+            timing.Pause()
+        try:
+            UpdateTimingReport(self, timing, allow_empty=timing.seen_prompt, announce=True)
+            timing.seen_prompt = True
+            return original_cmdloop(self)
+        finally:
+            if owns_pause:
                 timing.Resume()
 
     def SetBreak(self, filename, *args, **kwargs):
@@ -332,15 +351,10 @@ def Install():
                         self._portable_timing = None
                         if not (getattr(self, '_portable_reload_pending', False)
                                 or getattr(self, '_user_requested_quit', False)):
-                            rows, entries, project = timing.Snapshot()
+                            from function_timing import ShowTiming, UpdateTimingReport
+                            rows = UpdateTimingReport(self, timing, allow_empty=timing.report is not None)
                             if rows:
-                                report = None
-                                try:
-                                    report = timing.SaveReport(self._portable_launch_directory, entries, project)
-                                except OSError as error:
-                                    self.error('Could not write Callgrind report: {}'.format(error))
-                                self._portable_last_timing = (rows, report)
-                                from function_timing import ShowTiming
+                                self._portable_last_timing = (rows, timing.report)
                                 ShowTiming(self, rows=rows)
         return Execute
 
@@ -348,6 +362,7 @@ def Install():
     Pdb.do_rtime = Pdb.do_rt = RunTimed
     Pdb.set_break = SetBreak
     Pdb.interaction = Interaction
+    Pdb._cmdloop = CommandLoop
     Pdb.do_restart = Run
     Pdb._runscript = Wrap(Pdb._runscript, False)
     if hasattr(Pdb, '_runmodule'):
