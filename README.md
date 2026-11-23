@@ -42,6 +42,31 @@ next traceable line. Use `bt` to inspect the stack, `p` to inspect variables,
 and `n`, `s`, or `c` to resume. A long native call can delay the pause until
 control returns to Python.
 
+## Function timing
+
+Enter `rt` (or `rtime`) at the ipdb prompt to restart with function timing
+enabled. Use `c` to run. Each completed run prints its top 20 project functions
+by cumulative time and the path to a unique `ipdCache/callgrind.out.*` report.
+`ipdCache` is relative to the directory where you launched ipdb.
+
+| Command | Result |
+| --- | --- |
+| `i time` | Show the top 20 project functions |
+| `i time all` | Show all measured project functions |
+| `i time NAME` | Show functions whose names contain `NAME` |
+| `r` | Restart with timing disabled and keep the last completed report |
+
+At a breakpoint or after Ctrl+C, the table shows completed calls so far. If the
+current run has no completed calls yet, it can show the last completed run.
+The table reports call count, self time and cumulative time in seconds. Timing
+uses main-thread wall time and excludes time waiting at the debug prompt.
+
+Open the printed report path with `kcachegrind /path/to/ipdCache/callgrind.out.ID`
+to browse callers, callees and their costs. The report uses the
+[Callgrind format](https://valgrind.org/docs/manual/cl-format.html) with active
+wall time in integer microseconds. Costs are attached to function definition
+lines because cProfile measures at function granularity.
+
 ## Prepare from source
 
 A complete source checkout automatically extracts the matching archive from

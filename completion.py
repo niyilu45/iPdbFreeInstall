@@ -130,7 +130,7 @@ def Matches(debugger, line, begin, end):
     command_end = start + len(parts[0]) if parts else start
     argument_before_word = line[command_end:begin].strip()
     choices = {
-        'info': ('breakpoints', 'locals', 'args', 'checkpoints', 'display'),
+        'info': ('breakpoints', 'locals', 'args', 'checkpoints', 'display', 'timing'),
         'delete': ('breakpoints', 'checkpoint', 'display'),
         'enable': ('breakpoints', 'display'),
         'disable': ('breakpoints', 'display'),

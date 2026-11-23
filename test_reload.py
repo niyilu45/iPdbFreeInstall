@@ -11,6 +11,88 @@ from reload_code import Relocate
 
 
 class ReloadTests(unittest.TestCase):
+    def test_rtime_reports_live_calls_and_r_retains_the_completed_report(self):
+        launcher = Path(__file__).with_name('portable_ipdb.py').resolve()
+        for command in ('rtime', 'rt'):
+            with self.subTest(command=command), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                launch_dir = root / 'launch'
+                launch_dir.mkdir()
+                runtime_dir = root / 'runtime'
+                runtime_dir.mkdir()
+                script = root / 'timed.py'
+                script.write_text('raise RuntimeError("STALE_TIMING_SOURCE")\n')
+                extras = '\n\n'.join('def Extra{:02d}():\n    return 1'.format(i) for i in range(23))
+                calls = '\n'.join('    Extra{:02d}()'.format(i) for i in range(23))
+                source = ('import os, time\nos.chdir({!r})\n\ndef TimedLeaf():\n    return 42\n\n'.format(str(runtime_dir))
+                          + extras
+                          + '\n\ndef TimedOuter():\n' + calls
+                          + '\n    TimedLeaf()\n    value = TimedLeaf()\n    time.sleep(0.06)\n    return value\n\n'
+                          + 'print("TIMED_WORKLOAD", TimedOuter())\n')
+                breakpoint_line = source.splitlines().index('    time.sleep(0.06)') + 1
+                commands = [
+                    "!open({!r}, 'w').write({!r})".format(str(script), source),
+                    command, 'tbreak {}'.format(breakpoint_line), 'c',
+                    "!print('TIMING_DEFAULT')", 'i time',
+                    "!print('TIMING_ALL')", 'i time all',
+                    "!TimedLeaf()", "!print('TIMING_FILTERED')", 'i time Leaf',
+                    "!print('TIMING_COMPLETE')", 'c',
+                    "!print('TIMING_OFF')", 'r', 'c',
+                    "!print('TIMING_RETAINED')", 'i time TimedLeaf', 'q', '',
+                ]
+                result = subprocess.run([sys.executable, '-B', str(launcher), '--plain', str(script)],
+                    input='\n'.join(commands), stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                    universal_newlines=True, timeout=30, cwd=str(launch_dir),
+                    env=dict(os.environ, IPY_TEST_SIMPLE_PROMPT='1', IPYTHONDIR=directory))
+                output = re.sub(r'\x1b\[[0-9;]*m', '', result.stdout)
+                self.assertEqual(result.returncode, 0, output)
+                self.assertNotIn('Traceback', output)
+                self.assertNotIn('RuntimeError: STALE_TIMING_SOURCE', output)
+
+                def Section(start, end=None):
+                    self.assertIn('TIMING_' + start, output)
+                    content = output.split('TIMING_' + start, 1)[1]
+                    if end is not None:
+                        self.assertIn('TIMING_' + end, content)
+                        content = content.split('TIMING_' + end, 1)[0]
+                    return content
+
+                default = Section('DEFAULT', 'ALL')
+                all_functions = Section('ALL', 'FILTERED')
+                self.assertIn('Function timing (', default)
+                table_row = r'(?m)^[ \t]*\d+[ \t]+[0-9.]+[ \t]+[0-9.]+[ \t]+.*\([^()\n]+\)$'
+                self.assertEqual(len(re.findall(table_row, default)), 20, default)
+                self.assertEqual(len(set(re.findall(r'Extra\d\d', all_functions))), 23, all_functions)
+                leaf_row = r'(?m)^\s*2\s+[0-9.]+\s+[0-9.]+\s+.*\(TimedLeaf\)\s*$'
+                filtered = Section('FILTERED', 'COMPLETE')
+                self.assertRegex(filtered, leaf_row)
+                self.assertNotRegex(filtered, r'Extra\d\d')
+                completed = Section('COMPLETE', 'OFF')
+                self.assertIn('TIMED_WORKLOAD 42', completed)
+                outer_row = re.search(r'(?m)^\s*1\s+[0-9.]+\s+([0-9.]+)\s+.*\(TimedOuter\)\s*$', completed)
+                self.assertIsNotNone(outer_row, completed)
+                self.assertGreaterEqual(float(outer_row.group(1)), 0.05, completed)
+                untimed = Section('OFF', 'RETAINED')
+                self.assertIn('TIMED_WORKLOAD 42', untimed)
+                self.assertNotIn('Function timing (', untimed)
+                retained = Section('RETAINED')
+                self.assertIn('timing off', retained)
+                self.assertRegex(retained, leaf_row)
+
+                reports = re.findall(r'Callgrind report: ([^\r\n]+)', output)
+                self.assertTrue(reports, output)
+                self.assertEqual(len(set(reports)), 1, output)
+                report_path = (launch_dir / reports[0].strip()).resolve()
+                self.assertEqual(report_path.parent, (launch_dir / 'ipdCache').resolve())
+                self.assertEqual(list(report_path.parent.glob('callgrind.out.*')), [report_path])
+                report = report_path.read_text(encoding='utf-8')
+                self.assertRegex(report, r'(?m)^events:\s+Time\s*$')
+                self.assertRegex(report, r'(?m)^\d+ \d+$')
+                outer = [section for section in re.split(r'(?m)^fn=', report)
+                         if 'TimedOuter' in section.partition('\n')[0]]
+                self.assertEqual(len(outer), 1, report)
+                self.assertRegex(outer[0], r'(?m)^cfn=.*TimedLeaf(?::\d+)?\n(?:[^\n]+\n)*?calls=2\s+\d+')
+
     def test_exit_callbacks_run_once_in_reverse_order(self):
         for ending, commands in [('pass', 'c\nq\n'), ('sys.exit(7)', 'c\nc\nq\n')]:
             with self.subTest(ending=ending), tempfile.TemporaryDirectory() as directory:

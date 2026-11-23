@@ -196,6 +196,9 @@ def Install():
     original_interaction = Pdb.interaction
 
     def Interaction(self, *args, **kwargs):
+        timing = getattr(self, '_portable_timing', None)
+        if timing is not None:
+            timing.Pause()
         try:
             return original_interaction(self, *args, **kwargs)
         except pdb.Restart:
@@ -204,6 +207,9 @@ def Install():
             if getattr(self, '_portable_execution_active', False) or not hasattr(self, '_portable_project_root'):
                 raise
             self.message('Reload requested; leaving post-mortem debugging.')
+        finally:
+            if timing is not None:
+                timing.Resume()
 
     def SetBreak(self, filename, *args, **kwargs):
         before = bdb.Breakpoint.next
@@ -217,7 +223,7 @@ def Install():
                     pass
         return result
 
-    def Run(self, argument):
+    def Restart(self, argument, timing):
         # Keep the live prompt available if a saved edit is temporarily invalid.
         filename = getattr(self, 'mainpyfile', None)
         if filename:
@@ -226,13 +232,26 @@ def Install():
             except (OSError, SyntaxError, UnicodeError) as error:
                 self.error('Cannot reload saved source: {}'.format(error))
                 return
-        self._portable_reload_pending = True
-        return original_run(self, argument)
+        try:
+            return original_run(self, argument)
+        except pdb.Restart:
+            self._portable_reload_pending = True
+            self._portable_timing_enabled = timing
+            raise
+
+    def Run(self, argument):
+        """run [args...]: restart from saved source with function timing off."""
+        return Restart(self, argument, False)
+
+    def RunTimed(self, argument):
+        """rtime [args...]: restart with function timing on. Alias: rt."""
+        return Restart(self, argument, True)
 
     def Wrap(original, module_mode):
         def Execute(self, filename):
             if not hasattr(self, '_portable_initial_modules'):
                 self._portable_initial_modules = set(sys.modules)
+                self._portable_launch_directory = Path.cwd()
                 if module_mode:
                     spec = importlib.util.find_spec(filename)
                     root = Path(spec.origin).resolve().parent if spec and spec.origin else Path.cwd()
@@ -249,6 +268,7 @@ def Install():
             completed = False
             previous_sigint = None
             previous_nosigint = self.nosigint
+            timing = None
 
             def Pause(_signum, frame):
                 if self.allow_kbdint or getattr(self, 'quitting', True) or self.botframe is None:
@@ -274,6 +294,14 @@ def Install():
                         signal.signal(signal.SIGINT, Pause)
                         # Keep the same handler across continue and step commands.
                         self.nosigint = True
+                if getattr(self, '_portable_timing_enabled', False):
+                    if sys.getprofile() is None:
+                        from function_timing import FunctionTiming
+                        timing = FunctionTiming(self._portable_project_root)
+                        self._portable_timing = timing
+                        timing.profiler.enable()
+                    else:
+                        self.error('Function timing skipped because another profiler is active.')
                 result = original(self, filename)
                 completed = True
                 return result
@@ -294,11 +322,30 @@ def Install():
                 if previous_sigint is not None and signal.getsignal(signal.SIGINT) is Pause:
                     signal.signal(signal.SIGINT, previous_sigint)
                 self.nosigint = previous_nosigint
-                callbacks.Finish(completed)
-                self._portable_execution_active = False
+                try:
+                    callbacks.Finish(completed)
+                finally:
+                    self._portable_execution_active = False
+                    if timing is not None:
+                        if sys.getprofile() is timing.profiler:
+                            timing.profiler.disable()
+                        self._portable_timing = None
+                        if not (getattr(self, '_portable_reload_pending', False)
+                                or getattr(self, '_user_requested_quit', False)):
+                            rows, entries, project = timing.Snapshot()
+                            if rows:
+                                report = None
+                                try:
+                                    report = timing.SaveReport(self._portable_launch_directory, entries, project)
+                                except OSError as error:
+                                    self.error('Could not write Callgrind report: {}'.format(error))
+                                self._portable_last_timing = (rows, report)
+                                from function_timing import ShowTiming
+                                ShowTiming(self, rows=rows)
         return Execute
 
     Pdb.do_run = Run
+    Pdb.do_rtime = Pdb.do_rt = RunTimed
     Pdb.set_break = SetBreak
     Pdb.interaction = Interaction
     Pdb.do_restart = Run

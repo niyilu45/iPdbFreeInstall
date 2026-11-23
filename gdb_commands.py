@@ -6,14 +6,14 @@ COMMANDS = (
     'backtrace', 'break', 'checkpoint', 'clear', 'commands', 'condition',
     'continue', 'debug', 'delete', 'disable', 'display', 'enable', 'exit',
     'finish', 'frame', 'help', 'ignore', 'info', 'interact', 'jump', 'list',
-    'next', 'print', 'pudb', 'quit', 'restart', 'return', 'run', 'set',
+    'next', 'print', 'pudb', 'quit', 'restart', 'return', 'rtime', 'run', 'set',
     'source', 'step', 'tbreak', 'undisplay', 'until', 'up', 'where', 'whatis',
 )
 ALIASES = {
     'bt': 'backtrace', 'b': 'break', 'c': 'continue', 'cont': 'continue',
     'd': 'delete', 'dis': 'disable', 'disp': 'display', 'f': 'frame',
     'fin': 'finish', 'h': 'help', 'i': 'info', 'j': 'jump', 'l': 'list',
-    'n': 'next', 'p': 'print', 'q': 'quit', 'r': 'run', 's': 'step',
+    'n': 'next', 'p': 'print', 'q': 'quit', 'r': 'run', 'rt': 'rtime', 's': 'step',
     'u': 'up', 'unt': 'until', 'w': 'where',
 }
 
@@ -51,10 +51,13 @@ def Translate(line, native_commands=()):
     command = resolved
     if command in ('info', 'delete', 'enable', 'disable') and argument:
         subcommand, remainder = SplitArgument(argument)
-        choices = ('breakpoints', 'locals', 'args', 'checkpoints', 'display') if command == 'info' else ('breakpoints', 'checkpoint', 'display')
+        choices = ('breakpoints', 'locals', 'args', 'checkpoints', 'display', 'timing') if command == 'info' else ('breakpoints', 'checkpoint', 'display')
         if command in ('enable', 'disable'):
             choices = ('breakpoints', 'display')
-        subcommand = Resolve(subcommand, choices, {'b': 'breakpoints', 'disp': 'display'})
+        aliases = {'b': 'breakpoints', 'disp': 'display'}
+        if command == 'info':
+            aliases['time'] = 'timing'
+        subcommand = Resolve(subcommand, choices, aliases)
         argument = subcommand + (' ' + remainder if remainder else '')
         if command in ('enable', 'disable') and subcommand == 'breakpoints':
             argument = remainder
@@ -269,7 +272,11 @@ def Install():
             return '_portable_noop'
 
     def Info(self, argument):
-        """info breakpoints|locals|args|checkpoints|display"""
+        """info breakpoints|locals|args|checkpoints|display|timing [all|NAME]"""
+        topic, query = SplitArgument(argument)
+        if topic in ('time', 'timing'):
+            from function_timing import ShowTiming
+            return ShowTiming(self, query)
         if argument == 'display':
             entries = DisplayEntries(self)
             if not entries:
@@ -298,7 +305,7 @@ def Install():
             for number, entry in sorted(Manager.entries.items()):
                 self.message('{}  {}:{}'.format(number, entry['file'], entry['line']))
             return
-        self.error('Usage: info breakpoints|locals|args|checkpoints|display')
+        self.error('Usage: info breakpoints|locals|args|checkpoints|display|timing [all|NAME]')
 
     def PrintFormat(self, argument):
         """Print an integer expression using /t, /x, /o, /d or /c."""
