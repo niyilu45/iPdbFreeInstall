@@ -179,7 +179,8 @@ def VimCommand(vim, bridge):
     command = [str(vim)]
     if os.environ.get('IPDB_VIM_CLEAN') == '1':
         command.extend(['-N', '-u', 'NONE', '-i', 'NONE'])
-    command.extend(['-S', str(bridge)])
+    # Vim parses -S as an Ex filename, where Windows backslashes are escapes.
+    command.extend(['-S', Path(bridge).as_posix()])
     return command
 
 

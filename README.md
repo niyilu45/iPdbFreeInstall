@@ -569,16 +569,21 @@ From cmd: `ipdbVim.cmd my.py`. From PowerShell: `.\ipdbVim.cmd my.py`.
 In ConEmu, use the same command in a cmd or PowerShell tab. Git Bash tabs can
 use `sh ipdbVim.sh my.py` with Windows Python. WSL tabs use `./ipdbVim.sh my.py`
 with Linux Python, Vim, and tmux.
+For command-only debugging in the current ConEmu pane, run `sh ipdb.sh my.py`
+from Git Bash or `ipdb.cmd my.py` from cmd.
 This always selects system Vim mode, and respects IPDB_PYTHON like ipdb.cmd.
 Native vim.exe must be on PATH; no WSL or tmux is needed on Windows. The selected
 Python 3.12 can use the Windows offline archive directly. For older versions,
 use an existing ipdb installation or prepare matching Windows dependencies
 with `python prepare.py`. Linux vendor packages are not Windows dependency bundles.
 
-If wt.exe is on PATH, a new Windows Terminal window contains upper Vim and lower
-ipdb panes. Use your Windows Terminal pane-switch shortcuts between them, and
-Vim's own Ctrl-W keys within its source windows. Without Windows Terminal, Vim
-opens in a separate console and ipdb stays in the invoking console; use Alt-Tab.
+In ConEmu, the debugger stays in the current pane and Vim opens below it in the
+same tab. Use the mouse or your ConEmu split navigation shortcuts to move
+between panes. If ConEmu cannot create a split, ipdb runs in the current pane.
+In other Windows terminals, wt.exe on PATH opens a Windows Terminal window
+with upper Vim and lower ipdb panes. Without wt.exe, Vim opens in a separate
+console and ipdb stays in the invoking console. Vim's own Ctrl-W keys work
+within its source windows.
 Vim loads the normal Windows user configuration (_vimrc/vimrc) and plugins.
 After debugging, Enter closes an unmodified Vim session; unsaved buffers are
 kept open. If Vim fails to initialize, inspect its visible startup errors. A

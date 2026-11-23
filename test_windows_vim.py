@@ -43,11 +43,45 @@ class WindowsVimTests(unittest.TestCase):
             config = {key: str(root / key) for key in ('state', 'ready', 'close', 'closed', 'result', 'done', 'vim_result')}
             config.update(debugger=['python', 'portable_ipdb.py', '--plain', 'space file.py', 'a&b'], cwd=directory)
             (root / 'ready').write_text('ready')
-            with mock.patch('windows_vim.subprocess.call', return_value=7) as call, mock.patch('builtins.input', return_value=''):
+            with mock.patch('windows_vim.subprocess.Popen') as call, \
+                    mock.patch('source_vim.WaitForDebugger', return_value=7), mock.patch('builtins.input', return_value=''):
                 self.assertEqual(windows_vim.Debug(config), 7)
             self.assertEqual(call.call_args[0][0], config['debugger'])
             self.assertEqual((root / 'result').read_text(), '7')
             self.assertTrue((root / 'done').exists())
+
+    def test_conemu_launcher_keeps_debugger_in_current_pane(self):
+        def OpenPane(config_path):
+            config = json.loads(config_path.read_text())
+            Path(config['vim_result']).write_text('0')
+
+        with mock.patch.dict(os.environ, {'ConEmuPID': '123'}), \
+                mock.patch('sys.stdin.isatty', return_value=True), mock.patch('sys.stdout.isatty', return_value=True), \
+                mock.patch('windows_vim.shutil.which', return_value='vim.exe') as which, \
+                mock.patch('windows_vim.subprocess.check_output', return_value=b'+timers +eval +signs'), \
+                mock.patch('windows_vim.OpenConEmuVim', side_effect=OpenPane) as pane, \
+                mock.patch('windows_vim.Debug', return_value=7) as debug, \
+                mock.patch('windows_vim.subprocess.Popen') as spawn, mock.patch('windows_vim.subprocess.check_call') as terminal:
+            self.assertEqual(windows_vim.Run(['sample.py', 'a&b']), 7)
+            which.assert_called_once_with('vim')
+            pane.assert_called_once()
+            self.assertEqual(debug.call_args[0][0]['debugger'][-2:], ['sample.py', 'a&b'])
+            spawn.assert_not_called()
+            terminal.assert_not_called()
+
+    def test_conemu_split_failure_uses_plain_debugger(self):
+        with mock.patch.dict(os.environ, {'ConEmuPID': '123'}), \
+                mock.patch('sys.stdin.isatty', return_value=True), mock.patch('sys.stdout.isatty', return_value=True), \
+                mock.patch('windows_vim.shutil.which', return_value='vim.exe'), \
+                mock.patch('windows_vim.subprocess.check_output', return_value=b'+timers +eval +signs'), \
+                mock.patch('windows_vim.OpenConEmuVim', side_effect=RuntimeError('split failed')), \
+                mock.patch('source_vim.WaitForDebugger', return_value=7) as wait, \
+                mock.patch('windows_vim.subprocess.Popen') as spawn, mock.patch('windows_vim.subprocess.check_call') as terminal:
+            self.assertEqual(windows_vim.Run(['sample.py']), 7)
+            self.assertEqual(spawn.call_args[0][0][-2:], ['--plain', 'sample.py'])
+            self.assertNotIn('creationflags', spawn.call_args[1])
+            wait.assert_called_once_with(spawn.return_value)
+            terminal.assert_not_called()
 
     @unittest.skipUnless(sys.platform == 'win32', 'Windows cmd required')
     def test_cmd_entry_selects_vim_mode(self):
@@ -57,6 +91,12 @@ class WindowsVimTests(unittest.TestCase):
             env=dict(os.environ, IPDB_PYTHON=sys.executable), timeout=20)
         self.assertIn('requires an interactive Windows console', result.stdout)
         self.assertNotEqual(result.returncode, 0)
+
+    @unittest.skipUnless(sys.platform == 'win32', 'Windows path required')
+    def test_source_bridge_uses_ex_path_separators(self):
+        from source_vim import VimCommand
+        command = VimCommand('vim.exe', Path(r'C:\Program Files\ipdb\source_vim.vim'))
+        self.assertEqual(command[-2:], ['-S', 'C:/Program Files/ipdb/source_vim.vim'])
 
     @unittest.skipUnless(sys.platform == 'win32' and os.environ.get('IPDB_TEST_WINDOWS_CONSOLE') == '1', 'Opt-in native console test')
     def test_real_windows_console_and_debugger(self):

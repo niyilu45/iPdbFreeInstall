@@ -77,6 +77,22 @@ def TerminalCommand(terminal, name, config_path):
             '--title', 'ipdb commands', *common, '--debug', str(config_path)]
 
 
+def OpenConEmuVim(config_path):
+    directory = os.environ.get('ConEmuBaseDir')
+    helper = shutil.which('ConEmuC64.exe', path=directory) or shutil.which('ConEmuC.exe', path=directory)
+    if not helper:
+        raise RuntimeError('ConEmuC was not found')
+    worker = str(Path(__file__).resolve())
+    command = subprocess.list2cmdline([sys.executable, worker, '--vim', str(config_path)])
+    macro = 'Shell("new_console:s50Vbn","",{})'.format(json.dumps(command, ensure_ascii=False))
+    # ConEmu reads the raw command-line remainder after -GuiMacro.
+    call = subprocess.list2cmdline([helper, '-GuiMacro']) + ' ' + macro
+    result = subprocess.run(call, executable=helper, stdin=subprocess.DEVNULL,
+                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=5)
+    if result.returncode or result.stdout.strip() != b'OK':
+        raise RuntimeError('ConEmu did not create the Vim pane')
+
+
 def IsRunning(pid):
     import ctypes
     from ctypes import wintypes
@@ -106,16 +122,26 @@ def Run(arguments):
     if any(feature not in version for feature in (b'+timers', b'+eval', b'+signs')):
         raise RuntimeError('System Vim needs +timers, +eval and +signs (Vim 8 or newer)')
     base = Path(__file__).resolve().parent
-    terminal = shutil.which('wt.exe')
+    conemu = bool(os.environ.get('ConEmuPID'))
+    terminal = None if conemu else shutil.which('wt.exe')
     with tempfile.TemporaryDirectory(prefix='ipdb-vim-') as directory:
         root = Path(directory)
         config = {key: str(root / key) for key in ('state', 'ready', 'close', 'closed', 'result', 'done', 'vim_result', 'debug_pid')}
-        from source_vim import VimCommand
+        from source_vim import VimCommand, WaitForDebugger
         config.update(vim=VimCommand(vim, base / 'source_vim.vim'),
                       debugger=[sys.executable, str(base / 'portable_ipdb.py'), '--plain'] + list(arguments), cwd=os.getcwd())
         config_path = root / 'config.json'
         config_path.write_text(json.dumps(config))
+        if conemu:
+            try:
+                OpenConEmuVim(config_path)
+            except (OSError, RuntimeError, subprocess.TimeoutExpired) as error:
+                print('[ipdb] {}. Starting ipdb in the current ConEmu pane.'.format(error), flush=True)
+                return WaitForDebugger(subprocess.Popen(config['debugger'], cwd=config['cwd']))
         try:
+            if conemu:
+                print('[ipdb] System Vim is in the lower ConEmu pane; ipdb commands stay here.', flush=True)
+                return Debug(config)
             if terminal:
                 print('[ipdb] Opening Windows Terminal: system Vim above, ipdb below.', flush=True)
                 subprocess.check_call(TerminalCommand(terminal, 'ipdb-' + uuid.uuid4().hex, config_path))
