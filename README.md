@@ -13,7 +13,9 @@ For Python 3.7, for example:
     IPDB_PYTHON=python3.7 sh ipdb.sh /path/to/your_script.py
 
 No pip installation or network connection is needed on the destination.
-Without IPDB_PYTHON, the launcher selects python3, then python from PATH.
+Without IPDB_PYTHON, the launcher selects python3, then python from PATH on
+Linux. In a Windows POSIX shell such as Git Bash, it skips Microsoft Store
+execution aliases and tries python, python3, then the Windows Python launcher.
 Use a matching interpreter; each archive contains one version's dependencies.
 The Linux bundles contain pure-Python wheels and include pexpect/ptyprocess.
 
@@ -554,6 +556,9 @@ source synchronization; a complete Linux tmux interactive run is still pending.
 ### Windows system Vim launcher
 
 From cmd: `ipdbVim.cmd my.py`. From PowerShell: `.\ipdbVim.cmd my.py`.
+In ConEmu, use the same command in a cmd or PowerShell tab. Git Bash tabs can
+use `sh ipdbVim.sh my.py` with Windows Python. WSL tabs use `./ipdbVim.sh my.py`
+with Linux Python, Vim, and tmux.
 This always selects system Vim mode, and respects IPDB_PYTHON like ipdb.cmd.
 Native vim.exe must be on PATH; no WSL or tmux is needed on Windows. The selected
 Python must have the Windows debugger dependencies (an existing ipdb installation
