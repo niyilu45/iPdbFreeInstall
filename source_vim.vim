@@ -295,11 +295,36 @@ endfunction
 let g:ipdb_source_timer = timer_start(100, function('IpdbSourcePoll'), {'repeat': -1})
 call writefile(['ready'], $IPDB_VIM_READY)
 
-" Keep native Vim movement inside Vim; cross the tmux boundary at an edge.
+" Keep window movement inside Vim until it reaches a terminal pane boundary.
+let s:conemu_keys = !empty($IPDB_CONEMU_HELPER) && $ConEmuServerPID =~# '^[1-9][0-9]*$'
+function! s:RunConEmuCommand(path_names, arguments) abort
+  if exists('*job_start')
+    let command = map(copy(a:path_names), {_, name -> eval('$' . name)})
+    call job_start(command + a:arguments, {'in_io': 'null', 'out_io': 'null', 'err_io': 'null'})
+    return
+  endif
+  let shell = fnamemodify(substitute(&shell, '^"\|"$', '', 'g'), ':t:r')
+  if shell ==? 'powershell' || shell ==? 'pwsh'
+    let command = ['&'] + map(copy(a:path_names), {_, name -> '$env:' . name})
+  elseif shell ==? 'cmd'
+    " Delay expansion until cmd has parsed redirects and command separators.
+    let command = ['cmd', '/d', '/v:on', '/c', 'if', 'defined', a:path_names[0]]
+          \ + map(copy(a:path_names), {_, name -> '"!' . name . '!"'})
+  else
+    " Preserve the quotes passed through Vim's Windows shell command line.
+    let quote = has('win32') && &shellxquote ==# '"' ? '\"' : '"'
+    let command = map(copy(a:path_names), {_, name -> quote . '$' . name . quote})
+  endif
+  call system(join(command + a:arguments, ' '))
+endfunction
+
 function! IpdbWindowMove(direction) abort
   let previous = win_getid()
   execute 'wincmd ' . a:direction
-  if win_getid() == previous && !empty($IPDB_TMUX_SOCKET)
+  if win_getid() != previous
+    return
+  endif
+  if !empty($IPDB_TMUX_SOCKET)
     let direction = {'h': '-L', 'j': '-D', 'k': '-U', 'l': '-R'}[a:direction]
     let tmux = shellescape($IPDB_TMUX_BIN) . ' -L ' . shellescape($IPDB_TMUX_SOCKET)
     let target = trim(system(tmux . ' select-pane ' . direction . ' \; display-message -p "#{pane_id}"'))
@@ -339,9 +364,12 @@ function! IpdbWindowMove(direction) abort
       return
     endif
     call IpdbSourceRedraw(1)
+  elseif s:conemu_keys
+    let offset = {'h': [-1, 0], 'j': [0, 1], 'k': [0, -1], 'l': [1, 0]}[a:direction]
+    call s:RunConEmuCommand(['IPDB_CONEMU_HELPER'], ['-GuiMacro:' . $ConEmuServerPID, 'Split', '2'] + offset)
   endif
 endfunction
-if !empty($IPDB_TMUX_SOCKET)
+if !empty($IPDB_TMUX_SOCKET) || s:conemu_keys
   nnoremap <silent> <C-w>h :call IpdbWindowMove('h')<CR>
   nnoremap <silent> <C-w>j :call IpdbWindowMove('j')<CR>
   nnoremap <silent> <C-w>k :call IpdbWindowMove('k')<CR>
@@ -350,6 +378,21 @@ if !empty($IPDB_TMUX_SOCKET)
   nnoremap <silent> <C-w><C-j> :call IpdbWindowMove('j')<CR>
   nnoremap <silent> <C-w><C-k> :call IpdbWindowMove('k')<CR>
   nnoremap <silent> <C-w><C-l> :call IpdbWindowMove('l')<CR>
+endif
+
+function! s:ConEmuResize(action, count) abort
+  if winnr('$') > 1
+    execute a:count . 'wincmd ' . a:action
+    return
+  endif
+  call s:RunConEmuCommand(['IPDB_CONEMU_PYTHON', 'IPDB_CONEMU_LAUNCHER'],
+        \ ['--resize', a:action, string(a:count)])
+endfunction
+if s:conemu_keys && empty($IPDB_TMUX_SOCKET) && !empty($IPDB_CONEMU_CONFIG)
+      \ && !empty($IPDB_CONEMU_PYTHON) && !empty($IPDB_CONEMU_LAUNCHER)
+  nnoremap <silent> <C-w>+ :<C-u>call <SID>ConEmuResize('+', v:count1)<CR>
+  nnoremap <silent> <C-w>- :<C-u>call <SID>ConEmuResize('-', v:count1)<CR>
+  nnoremap <silent> <C-w>= :<C-u>call <SID>ConEmuResize('=', 1)<CR>
 endif
 
 command! IpdbViewInfo echomsg string({'term': $TERM, 'vim': v:version, 'size': [&lines, &columns], 'view': winsaveview(), 'lazyredraw': &lazyredraw, 'ttyscroll': &ttyscroll, 'background_erase': &t_ut})

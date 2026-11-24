@@ -52,44 +52,70 @@ class WindowsVimTests(unittest.TestCase):
             self.assertEqual((root / 'result').read_text(), '7')
             self.assertTrue((root / 'done').exists())
 
-    def test_conemu_launcher_keeps_debugger_in_current_pane(self):
-        def OpenPane(config_path):
-            config = json.loads(config_path.read_text())
+    def test_conemu_launcher_waits_for_debugger_in_new_pane(self):
+        def OpenPane(config, config_path):
+            self.assertEqual(json.loads(config_path.read_text()), config)
+            self.assertEqual(config['debugger'][-2:], ['sample.py', 'a&b'])
+            self.assertNotIn('IPDB_CONEMU_TTY', json.loads(Path(config['origin_environment']).read_text()))
             Path(config['vim_result']).write_text('0')
 
         with mock.patch.dict(os.environ, {'ConEmuPID': '123', 'IPDB_CONEMU_TTY': '1'}), \
                 mock.patch('sys.stdin.isatty', return_value=False), mock.patch('sys.stdout.isatty', return_value=False), \
                 mock.patch('windows_vim.shutil.which', return_value='vim.exe') as which, \
-                mock.patch('windows_vim.subprocess.check_output', return_value=b'+timers +eval +signs'), \
+                mock.patch('windows_vim.subprocess.check_output', return_value=b'MS-Windows +timers +eval +signs'), \
+                mock.patch('windows_vim.ConEmuHelper', return_value='ConEmuC64.exe'), \
                 mock.patch('windows_vim.OpenConEmuVim', side_effect=OpenPane) as pane, \
-                mock.patch('windows_vim.Debug', return_value=7) as debug, \
+                mock.patch('windows_vim.WaitForDebugPane', return_value=7) as wait, \
                 mock.patch('windows_vim.subprocess.Popen') as spawn, mock.patch('windows_vim.subprocess.check_call') as terminal:
             self.assertEqual(windows_vim.Run(['sample.py', 'a&b']), 7)
             self.assertNotIn('IPDB_CONEMU_TTY', os.environ)
             which.assert_called_once_with('vim')
             pane.assert_called_once()
-            self.assertEqual(debug.call_args[0][0]['debugger'][-2:], ['sample.py', 'a&b'])
+            wait.assert_called_once_with(pane.call_args[0][0], 'ConEmu')
             spawn.assert_not_called()
             terminal.assert_not_called()
 
-    def test_conemu_macro_activates_the_calling_pane_before_splitting(self):
-        with mock.patch.dict(os.environ, {'ConEmuServerPID': '456'}), \
-                mock.patch('windows_vim.shutil.which', return_value='ConEmuC64.exe'), \
-                mock.patch('windows_vim.subprocess.run', return_value=subprocess.CompletedProcess([], 0, b'OK;OK')) as run:
-            windows_vim.OpenConEmuVim(Path('session file.json'))
-            self.assertIn('-GuiMacro:456 Tab(7,-2);Shell(', run.call_args[0][0])
-
-    def test_conemu_restores_the_split_only_when_the_panes_overlap_or_are_hidden(self):
+    def test_conemu_opens_vim_before_splitting_below_it(self):
         with tempfile.TemporaryDirectory() as directory:
-            draw = Path(directory) / 'source_draw'
-            draw.write_text('0x25', encoding='ascii')
-            with mock.patch.dict(os.environ, {'ConEmuDrawHWND': '0x12'}):
-                for layout, expected in (([True], []), ([None], []), ([False, True], [mock.call('Split(3)')])):
-                    with self.subTest(layout=layout), mock.patch('windows_vim.ConEmuSplitVisible', side_effect=layout) as visible, \
-                            mock.patch('windows_vim.ConEmuMacro', return_value=b'InvalidArg') as macro:
-                        windows_vim.RestoreConEmuSplit(draw)
-                        self.assertEqual(visible.call_args[0], (0x12, 0x25))
-                        self.assertEqual(macro.call_args_list, expected)
+            pane = Path(directory, 'source_pane')
+            pane.write_text(json.dumps({'server': '456', 'draw': '0x25'}), encoding='ascii')
+            config = dict(source_pane=str(pane), conemu_helper='ConEmuC64.exe')
+            with mock.patch.dict(os.environ, {'ConEmuPID': '123'}), \
+                    mock.patch('windows_vim.ConEmuMacro', side_effect=[b'OK', b'OK;OK']) as macro:
+                windows_vim.OpenConEmuVim(config, Path(directory, 'session file.json'))
+            first, second = macro.call_args_list
+            self.assertEqual(first[1]['server'], 123)
+            self.assertIn('Shell("new_console:fnt:ipdb"', first[0][0])
+            self.assertIn('--vim', first[0][0])
+            self.assertEqual(second[1]['server'], 456)
+            self.assertIn('Tab(7,-2);Shell("new_console:s50Vfn"', second[0][0])
+            self.assertIn('--debug', second[0][0])
+
+    def test_conemu_rejects_inverted_or_hidden_splits(self):
+        for bounds, expected in (([(0, 25), (25, 50)], True),
+                                 ([(25, 50), (0, 25)], False),
+                                 ([(0, 50), (25, 50)], False),
+                                 ([None, (0, 50)], False)):
+            with self.subTest(bounds=bounds), mock.patch('windows_vim.PaneBounds', side_effect=bounds):
+                self.assertEqual(windows_vim.ConEmuSplitVisible(0x25, 0x12), expected)
+
+    def test_conemu_resize_uses_current_pane_and_count(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config = {name: str(root / name) for name in ('source_pane', 'debug_pane')}
+            (root / 'config').write_text(json.dumps(config))
+            (root / 'source_pane').write_text(json.dumps({'server': '123', 'draw': '0x25'}))
+            (root / 'debug_pane').write_text(json.dumps({'server': '456', 'draw': '0x12'}))
+            for server, action, count, change in (('123', '+', 3, 3), ('456', '+', 5, -5),
+                                                   ('123', '-', 3, -3), ('456', '-', 1, 1), ('123', '=', 1, -5)):
+                with self.subTest(server=server, action=action), \
+                        mock.patch.dict(os.environ, {'IPDB_CONEMU_CONFIG': str(root / 'config'), 'ConEmuServerPID': server}), \
+                        mock.patch('windows_vim.PaneBounds', side_effect=[(0, 300), (303, 503)]), \
+                        mock.patch('windows_vim.ConsoleRows', return_value=30), \
+                        mock.patch('windows_vim.ConEmuMacro') as macro:
+                    windows_vim.ResizeConEmu(action, count)
+                    step = 'Split(1,0,{})'.format(1 if change > 0 else -1)
+                    macro.assert_called_once_with(';'.join([step] * abs(change)))
 
     def test_conemu_prefers_a_supported_native_vim_over_msys_vim(self):
         features = b' +timers +eval +signs'
@@ -112,18 +138,17 @@ class WindowsVimTests(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, 'requires an interactive Windows console'):
                     windows_vim.Run(['sample.py'])
 
-    def test_conemu_split_failure_uses_plain_debugger(self):
+    def test_conemu_split_failure_is_reported(self):
         with mock.patch.dict(os.environ, {'ConEmuPID': '123'}), \
                 mock.patch('sys.stdin.isatty', return_value=True), mock.patch('sys.stdout.isatty', return_value=True), \
                 mock.patch('windows_vim.shutil.which', return_value='vim.exe'), \
-                mock.patch('windows_vim.subprocess.check_output', return_value=b'+timers +eval +signs'), \
+                mock.patch('windows_vim.subprocess.check_output', return_value=b'MS-Windows +timers +eval +signs'), \
+                mock.patch('windows_vim.ConEmuHelper', return_value='ConEmuC64.exe'), \
                 mock.patch('windows_vim.OpenConEmuVim', side_effect=RuntimeError('split failed')), \
-                mock.patch('source_vim.WaitForDebugger', return_value=7) as wait, \
                 mock.patch('windows_vim.subprocess.Popen') as spawn, mock.patch('windows_vim.subprocess.check_call') as terminal:
-            self.assertEqual(windows_vim.Run(['sample.py']), 7)
-            self.assertEqual(spawn.call_args[0][0][-2:], ['--plain', 'sample.py'])
-            self.assertNotIn('creationflags', spawn.call_args[1])
-            wait.assert_called_once_with(spawn.return_value)
+            with self.assertRaisesRegex(RuntimeError, 'split failed'):
+                windows_vim.Run(['sample.py'])
+            spawn.assert_not_called()
             terminal.assert_not_called()
 
     @unittest.skipUnless(sys.platform == 'win32', 'Windows cmd required')

@@ -112,6 +112,9 @@ if __name__ == '__main__':
     if os.environ.get('IPDB_VIM_STATE'):
         from source_vim import InstallHook
         InstallHook(os.environ['IPDB_VIM_STATE'])
+    if sys.platform == 'win32' and os.environ.get('IPDB_CONEMU_HELPER'):
+        from windows_vim import InstallConEmuKeys
+        InstallConEmuKeys()
     from ipdb.__main__ import main
     from checkpoints import Supervise
     saved_input = None
