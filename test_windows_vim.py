@@ -23,7 +23,7 @@ class WindowsVimTests(unittest.TestCase):
             root = Path(directory)
             config = {'ready': str(root / 'ready'), 'vim_result': str(root / 'result')}
             (root / 'result').write_text('1')
-            with self.assertRaisesRegex(RuntimeError, 'exited before initializing'):
+            with self.assertRaisesRegex(RuntimeError, 'exited before debugging started'):
                 windows_vim.WaitReady(config)
 
     def test_version_probe_accepts_non_ascii_output(self):
@@ -71,6 +71,39 @@ class WindowsVimTests(unittest.TestCase):
             self.assertEqual(debug.call_args[0][0]['debugger'][-2:], ['sample.py', 'a&b'])
             spawn.assert_not_called()
             terminal.assert_not_called()
+
+    def test_conemu_macro_activates_the_calling_pane_before_splitting(self):
+        with mock.patch.dict(os.environ, {'ConEmuServerPID': '456'}), \
+                mock.patch('windows_vim.shutil.which', return_value='ConEmuC64.exe'), \
+                mock.patch('windows_vim.subprocess.run', return_value=subprocess.CompletedProcess([], 0, b'OK;OK')) as run:
+            windows_vim.OpenConEmuVim(Path('session file.json'))
+            self.assertIn('-GuiMacro:456 Tab(7,-2);Shell(', run.call_args[0][0])
+
+    def test_conemu_restores_the_split_only_when_the_panes_overlap_or_are_hidden(self):
+        with tempfile.TemporaryDirectory() as directory:
+            draw = Path(directory) / 'source_draw'
+            draw.write_text('0x25', encoding='ascii')
+            with mock.patch.dict(os.environ, {'ConEmuDrawHWND': '0x12'}):
+                for layout, expected in (([True], []), ([None], []), ([False, True], [mock.call('Split(3)')])):
+                    with self.subTest(layout=layout), mock.patch('windows_vim.ConEmuSplitVisible', side_effect=layout) as visible, \
+                            mock.patch('windows_vim.ConEmuMacro', return_value=b'InvalidArg') as macro:
+                        windows_vim.RestoreConEmuSplit(draw)
+                        self.assertEqual(visible.call_args[0], (0x12, 0x25))
+                        self.assertEqual(macro.call_args_list, expected)
+
+    def test_conemu_prefers_a_supported_native_vim_over_msys_vim(self):
+        features = b' +timers +eval +signs'
+        with tempfile.TemporaryDirectory() as directory:
+            msys = Path(directory, 'git', 'vim.exe')
+            native = Path(directory, 'native', 'vim.exe')
+            for candidate in (msys, native):
+                candidate.parent.mkdir()
+                candidate.touch()
+            with mock.patch('windows_vim.shutil.which', return_value=str(msys)), \
+                    mock.patch('windows_vim.os.get_exec_path', return_value=[str(msys.parent), str(native.parent)]), \
+                    mock.patch('windows_vim.subprocess.check_output', side_effect=[b'MSYS' + features, b'MS-Windows' + features]) as probe:
+                self.assertEqual(windows_vim.SelectVim(conemu=True), str(native))
+                self.assertEqual(probe.call_count, 2)
 
     def test_pipe_requires_conemu_and_an_interactive_shell(self):
         for environment in ({'ConEmuPID': '123'}, {'IPDB_CONEMU_TTY': '1'}):
