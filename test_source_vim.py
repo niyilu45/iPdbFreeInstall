@@ -2,6 +2,7 @@
 import json
 import os
 from pathlib import Path
+import re
 import shlex
 import shutil
 import subprocess
@@ -122,6 +123,69 @@ class VimTests(unittest.TestCase):
                 env=dict(os.environ, IPDB_VIM_STATE=str(state), IPY_TEST_SIMPLE_PROMPT='1', IPYTHONDIR=directory))
             self.assertEqual(result.returncode, 0, result.stdout)
             self.assertEqual(Path(json.loads(state.read_text())['file']).name, 'helper.py')
+
+    def test_syntax_error_publishes_the_source_and_can_be_repaired(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / 'broken source.py'
+            state, initial, after_edit = [root / name for name in ('state', 'initial', 'after_edit')]
+            source.write_text('value = 41\nif :\n    value += 1\n')
+            invalid_edit = 'value = 41\n\nif :\n    value += 1\n'
+            valid_edit = 'value = 41\nprint("RECOVERED", value + 1)\n'
+            pid = "!print('SYNTAX_SESSION_PID', __import__('os').getpid())"
+            copy = "!__import__('shutil').copyfile({!r}, {!r})"
+            commands = [pid, copy.format(str(state), str(initial)),
+                        "!open({!r}, 'w').write({!r})".format(str(source), invalid_edit), 'r',
+                        copy.format(str(state), str(after_edit)),
+                        "!open({!r}, 'w').write({!r})".format(str(source), valid_edit),
+                        'r', pid, 'c', 'q', '']
+            launcher = Path(__file__).with_name('portable_ipdb.py').resolve()
+            result = subprocess.run([sys.executable, '-B', str(launcher), '--plain', str(source)],
+                input='\n'.join(commands), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True,
+                cwd=directory, timeout=30,
+                env=dict(os.environ, IPDB_VIM_STATE=str(state), IPY_TEST_SIMPLE_PROMPT='1', IPYTHONDIR=directory))
+            self.assertEqual(result.returncode, 0, result.stdout)
+            self.assertIn('SyntaxError: invalid syntax', result.stdout)
+            self.assertIn('Cannot reload saved source', result.stdout)
+            self.assertIn('RECOVERED 42', result.stdout)
+            pids = re.findall(r'SYNTAX_SESSION_PID (\d+)', result.stdout)
+            self.assertEqual(len(pids), 2, result.stdout)
+            self.assertEqual(pids[0], pids[1])
+            for snapshot, line in ((initial, 2), (after_edit, 3)):
+                position = json.loads(snapshot.read_text())
+                self.assertEqual(Path(position['file']).resolve(), source.resolve())
+                self.assertEqual(position['line'], line)
+
+    def test_can_quit_at_the_initial_syntax_error(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / 'broken.py'
+            source.write_text('if :\n    pass\n')
+            launcher = Path(__file__).with_name('portable_ipdb.py').resolve()
+            result = subprocess.run([sys.executable, '-B', str(launcher), '--plain', str(source)],
+                input='q\n', stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True,
+                cwd=directory, timeout=30,
+                env=dict(os.environ, IPDB_VIM_STATE=str(root / 'state'), IPY_TEST_SIMPLE_PROMPT='1', IPYTHONDIR=directory))
+            self.assertEqual(result.returncode, 0, result.stdout)
+            self.assertEqual(result.stdout.count('SyntaxError: invalid syntax'), 1, result.stdout)
+
+    @unittest.skipIf(sys.version_info < (3, 7), 'Module launching requires Python 3.7')
+    def test_module_syntax_error_publishes_the_real_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / 'broken_module.py'
+            source.write_text('value = 41\nif :\n    value += 1\n')
+            state = root / 'state'
+            launcher = Path(__file__).with_name('portable_ipdb.py').resolve()
+            result = subprocess.run([sys.executable, '-B', str(launcher), '--plain', '-m', 'broken_module'],
+                input='q\n', stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True,
+                cwd=directory, timeout=30,
+                env=dict(os.environ, IPDB_VIM_STATE=str(state), IPY_TEST_SIMPLE_PROMPT='1',
+                         IPYTHONDIR=directory, PYTHONPATH=directory))
+            self.assertEqual(result.returncode, 0, result.stdout)
+            position = json.loads(state.read_text())
+            self.assertEqual(Path(position['file']).resolve(), source.resolve())
+            self.assertEqual(position['line'], 2)
 
     @unittest.skipUnless(shutil.which('vim'), 'System Vim required')
     def test_real_vim_loads_plugins_and_only_moves_main(self):

@@ -89,13 +89,17 @@ def WriteMarker(filename, content):
 
 
 def Worker(role, filename):
-    config = json.loads(Path(filename).read_text())
-    pane = 'source_pane' if role == '--vim' else 'debug_pane'
-    if pane in config:
-        WriteMarker(config[pane], json.dumps({'server': os.environ.get('ConEmuServerPID'),
-                                              'draw': os.environ.get('ConEmuDrawHWND')}))
-    if role == '--debug':
-        WriteMarker(config['debug_pid'], str(os.getpid()))
+    try:
+        config = json.loads(Path(filename).read_text())
+        pane = 'source_pane' if role == '--vim' else 'debug_pane'
+        if role == '--debug':
+            WriteMarker(config['debug_pid'], str(os.getpid()))
+        if pane in config:
+            WriteMarker(config[pane], json.dumps({'server': os.environ.get('ConEmuServerPID'),
+                                                  'draw': os.environ.get('ConEmuDrawHWND')}))
+    except FileNotFoundError:
+        print('[ipdb] The Vim session ended before this pane started.', flush=True)
+        return 1
     if role == '--vim':
         if sys.platform == 'win32' and not sys.stdin.isatty():
             with open('CONIN$', 'r') as console_in, open('CONOUT$', 'w') as console_out:
@@ -108,6 +112,12 @@ def Worker(role, filename):
         except FileNotFoundError:
             pass
         return code
+    if 'start' in config:
+        try:
+            WaitForLauncherStart(config)
+        except RuntimeError as error:
+            print('[ipdb] ' + str(error), flush=True)
+            return 1
     return Debug(config)
 
 
@@ -148,27 +158,47 @@ def ConEmuLaunch(verb, role, config_path):
     return 'Shell("new_console:{}","",{})'.format(verb, json.dumps(command, ensure_ascii=False))
 
 
+def RequestConEmuPane(config, pane, macro, server, failure):
+    try:
+        reply = ConEmuMacro(macro, server=server, helper=config['conemu_helper'])
+        detail = reply.decode('utf-8', errors='replace').strip()
+    except (OSError, RuntimeError, subprocess.SubprocessError) as error:
+        detail = str(error)
+    # ConEmu may return a different macro reply even when the pane starts.
+    # The actual worker writes its own identity before it can run the debugger.
+    marker = Path(config[pane])
+    deadline = time.monotonic() + 10
+    while not marker.exists():
+        if time.monotonic() >= deadline:
+            raise RuntimeError('{} ({})'.format(failure, detail) if detail else failure)
+        time.sleep(0.05)
+    return json.loads(marker.read_text(encoding='ascii'))
+
+
+def WaitForLauncherStart(config):
+    start = Path(config['start'])
+    close = Path(config['close'])
+    deadline = time.monotonic() + 20
+    while start.parent.is_dir() and not close.exists() and time.monotonic() < deadline:
+        if start.exists():
+            return
+        time.sleep(0.05)
+    raise RuntimeError('The launcher did not confirm the source and debugger panes')
+
+
 def OpenConEmuVim(config, config_path):
     gui = os.environ.get('ConEmuPID', '')
     if not gui.isdecimal() or int(gui) == 0:
         raise RuntimeError('ConEmu window was not identified')
-    helper = config['conemu_helper']
     # A clean tab in the existing window gives Vim the upper console. A new
     # native debugger console below it does not share Git Bash's MSYS pipe.
-    if ConEmuMacro(ConEmuLaunch('fnt:ipdb', '--vim', config_path), server=int(gui), helper=helper) != b'OK':
-        raise RuntimeError('ConEmu did not create the Vim source tab')
-    pane_file = Path(config['source_pane'])
-    deadline = time.monotonic() + 10
-    while not pane_file.exists():
-        if time.monotonic() >= deadline:
-            raise RuntimeError('ConEmu did not start the Vim source pane')
-        time.sleep(0.05)
-    server = json.loads(pane_file.read_text(encoding='ascii')).get('server') or ''
+    source = RequestConEmuPane(config, 'source_pane', ConEmuLaunch('fnt:ipdb', '--vim', config_path),
+                               int(gui), 'ConEmu did not create the Vim source tab')
+    server = source.get('server') or ''
     if not server.isdecimal() or int(server) == 0:
         raise RuntimeError('ConEmu did not identify the Vim source pane')
     macro = 'Tab(7,-2);' + ConEmuLaunch('s50Vfn', '--debug', config_path)
-    if ConEmuMacro(macro, server=int(server), helper=helper) != b'OK;OK':
-        raise RuntimeError('ConEmu did not create the debugger pane below Vim')
+    RequestConEmuPane(config, 'debug_pane', macro, int(server), 'ConEmu did not create the debugger pane below Vim')
 
 
 def PaneBounds(handle):
@@ -358,9 +388,13 @@ def WaitForDebugPane(config, terminal):
     done = Path(config['done'])
     worker = Path(config['debug_pid'])
     debugger = Path(config['debugger_pid'])
+    start = config.get('start')
     deadline = time.monotonic() + 20
     while True:
         try:
+            if start is not None:
+                WriteMarker(start, 'start')
+                start = None
             if done.exists():
                 return int(Path(config['result']).read_text())
             if worker.exists():
@@ -393,6 +427,8 @@ def Run(arguments):
         config.update(vim=VimCommand(vim, base / 'source_vim.vim'),
                       debugger=[sys.executable, str(base / 'portable_ipdb.py'), '--plain'] + list(arguments), cwd=os.getcwd())
         config_path = root / 'config.json'
+        if conemu or terminal:
+            config['start'] = str(root / 'start')
         if conemu:
             config.update(source_pane=str(root / 'source_pane'), debug_pane=str(root / 'debug_pane'),
                           conemu_helper=ConEmuHelper(), config_path=str(config_path),

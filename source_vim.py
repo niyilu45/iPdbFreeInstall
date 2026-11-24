@@ -163,14 +163,20 @@ def InstallHook(path):
         self.message('{}: {}'.format(code, meanings[code]))
         self._portable_view_before = None
 
+    def SyncSource(self, filename, line):
+        try:
+            Publish(path, filename, line)
+        except OSError as error:
+            self.error('Vim source sync failed: {}'.format(error))
+            return False
+        return True
+
     def StackEntry(self, frame_lineno, *args, **kwargs):
         if getattr(self, '_portable_vim_explicit_stack', False):
             return original(self, frame_lineno, *args, **kwargs)
         frame, line = frame_lineno
-        try:
-            Publish(path, frame.f_code.co_filename, line)
-        except OSError as error:
-            self.error('Vim source sync failed: {}'.format(error))
+        location = getattr(self, '_portable_syntax_location', (frame.f_code.co_filename, line))
+        if not SyncSource(self, *location):
             return original(self, frame_lineno, *args, **kwargs)
         show = getattr(self, '_portable_show_displays', None)
         if show is not None:
@@ -185,6 +191,7 @@ def InstallHook(path):
             self._portable_vim_explicit_stack = previous
 
     Pdb.print_stack_entry = StackEntry
+    Pdb._portable_vim_sync = SyncSource
     Pdb.do_where = Where
     Pdb.do_w = Where
     Pdb.do_viewcheck = ViewCheck

@@ -12,6 +12,7 @@ import pdb
 import atexit
 import signal
 import threading
+from traceback import format_exception_only
 
 
 class ExitCallbacks:
@@ -52,6 +53,12 @@ class ExitCallbacks:
 def ReadSource(filename):
     with tokenize.open(filename) as stream:
         return stream.read().splitlines(True)
+
+
+def SyntaxLocation(error):
+    filename = error.filename
+    if isinstance(filename, str) and Path(filename).is_file():
+        return filename, max(1, error.lineno or 1)
 
 
 def Relocate(old, new, line):
@@ -250,6 +257,12 @@ def Install():
                 compile(''.join(ReadSource(filename)), filename, 'exec')
             except (OSError, SyntaxError, UnicodeError) as error:
                 self.error('Cannot reload saved source: {}'.format(error))
+                sync = getattr(self, '_portable_vim_sync', None)
+                location = SyntaxLocation(error) if isinstance(error, SyntaxError) else None
+                if sync is not None and location is not None:
+                    if hasattr(self, '_portable_syntax_location'):
+                        self._portable_syntax_location = location
+                    sync(*location)
                 return
         try:
             return original_run(self, argument)
@@ -272,12 +285,11 @@ def Install():
 
     def Wrap(original, source_filename):
         def Execute(self, target):
-            if not hasattr(self, '_portable_initial_modules'):
+            first_run = not hasattr(self, '_portable_initial_modules')
+            if first_run:
                 self._portable_initial_modules = set(sys.modules)
                 self._portable_launch_directory = Path.cwd()
-                filename = source_filename(target)
-                self._portable_project_root = (Path(filename).resolve().parent if filename
-                                               else self._portable_launch_directory)
+                self._portable_project_root = self._portable_launch_directory
             if getattr(self, '_portable_reload_pending', False):
                 # Modern pdb module targets cache their code on first access.
                 # Refresh before resolving the new target in the native runner.
@@ -310,6 +322,10 @@ def Install():
                 sys.settrace(self.trace_dispatch)
 
             try:
+                if first_run:
+                    filename = source_filename(target)
+                    if filename:
+                        self._portable_project_root = Path(filename).resolve().parent
                 if not previous_nosigint and threading.current_thread() is threading.main_thread():
                     previous_sigint = signal.getsignal(signal.SIGINT)
                     if previous_sigint is not None:
@@ -326,6 +342,23 @@ def Install():
                 result = original(self, target)
                 completed = True
                 return result
+            except SyntaxError as error:
+                location = SyntaxLocation(error)
+                if location is None:
+                    raise
+                if not getattr(self, 'mainpyfile', None):
+                    self.mainpyfile = self.canonic(location[0])
+                    self._portable_project_root = Path(location[0]).resolve().parent
+                if not hasattr(self, 'botframe'):
+                    self.reset()
+                self._user_requested_quit = False
+                self._portable_syntax_location = location
+                try:
+                    self.message(''.join(format_exception_only(type(error), error)).rstrip())
+                    self.message('Fix the source and use r to retry, or q to quit.')
+                    return self.interaction(None, error.__traceback__)
+                finally:
+                    del self._portable_syntax_location
             except SystemExit as error:
                 # Keep the traceback frames alive while inspecting program exit.
                 traceback = error.__traceback__

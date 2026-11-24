@@ -118,18 +118,41 @@ class WindowsVimTests(unittest.TestCase):
     def test_conemu_opens_vim_before_splitting_below_it(self):
         with tempfile.TemporaryDirectory() as directory:
             pane = Path(directory, 'source_pane')
+            debug = Path(directory, 'debug_pane')
             pane.write_text(json.dumps({'server': '456', 'draw': '0x25'}), encoding='ascii')
-            config = dict(source_pane=str(pane), conemu_helper='ConEmuC64.exe')
-            with mock.patch.dict(os.environ, {'ConEmuPID': '123'}), \
-                    mock.patch('windows_vim.ConEmuMacro', side_effect=[b'OK', b'OK;OK']) as macro:
-                windows_vim.OpenConEmuVim(config, Path(directory, 'session file.json'))
-            first, second = macro.call_args_list
-            self.assertEqual(first[1]['server'], 123)
-            self.assertIn('Shell("new_console:fnt:ipdb"', first[0][0])
-            self.assertIn('--vim', first[0][0])
-            self.assertEqual(second[1]['server'], 456)
-            self.assertIn('Tab(7,-2);Shell("new_console:s50Vfn"', second[0][0])
-            self.assertIn('--debug', second[0][0])
+            debug.write_text(json.dumps({'server': '789', 'draw': '0x12'}), encoding='ascii')
+            config = dict(source_pane=str(pane), debug_pane=str(debug), conemu_helper='ConEmuC64.exe')
+            for reply in (b'OK', b'OK;OK', subprocess.TimeoutExpired('ConEmuC64.exe', 5)):
+                with self.subTest(reply=reply), mock.patch.dict(os.environ, {'ConEmuPID': '123'}), \
+                        mock.patch('windows_vim.ConEmuMacro', side_effect=[b'OK', reply]) as macro:
+                    windows_vim.OpenConEmuVim(config, Path(directory, 'session file.json'))
+                    first, second = macro.call_args_list
+                    self.assertEqual(first[1]['server'], 123)
+                    self.assertIn('Shell("new_console:fnt:ipdb"', first[0][0])
+                    self.assertIn('--vim', first[0][0])
+                    self.assertEqual(second[1]['server'], 456)
+                    self.assertIn('Tab(7,-2);Shell("new_console:s50Vfn"', second[0][0])
+                    self.assertIn('--debug', second[0][0])
+
+    def test_conemu_reply_alone_does_not_confirm_a_pane(self):
+        with tempfile.TemporaryDirectory() as directory, \
+                mock.patch('windows_vim.ConEmuMacro', return_value=b'OK;OK'), \
+                mock.patch('windows_vim.time.monotonic', side_effect=[0, 11]):
+            config = dict(debug_pane=str(Path(directory, 'debug_pane')), conemu_helper='ConEmuC64.exe')
+            with self.assertRaisesRegex(RuntimeError, 'did not create the debugger pane'):
+                windows_vim.RequestConEmuPane(config, 'debug_pane', 'Shell()', 456,
+                                              'ConEmu did not create the debugger pane')
+
+    def test_conemu_debugger_cannot_start_after_launcher_cancelled(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config = {name: str(root / name) for name in ('source_pane', 'debug_pane', 'debug_pid', 'start', 'close')}
+            config_file = root / 'config.json'
+            config_file.write_text(json.dumps(config))
+            (root / 'close').touch()
+            with mock.patch('windows_vim.Debug') as debug:
+                self.assertEqual(windows_vim.Worker('--debug', config_file), 1)
+                debug.assert_not_called()
 
     def test_conemu_rejects_inverted_or_hidden_splits(self):
         for bounds, expected in (([(0, 25), (25, 50)], True),
