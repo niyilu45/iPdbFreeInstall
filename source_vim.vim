@@ -27,6 +27,8 @@ cnoreabbrev <expr> wall getcmdtype() ==# ':' && getcmdline() ==# 'wall' ? 'silen
 " Avoid terminal line-scroll and background-erase optimizations in tmux.
 " Some outer terminals leave cells intact even after a normal Ctrl-L redraw.
 let s:tmux_view = !empty($IPDB_TMUX_SOCKET)
+let s:windows_console_view = has('win32') && !has('gui_running') && has('ttyin') && has('ttyout')
+let s:track_viewport = s:tmux_view || s:windows_console_view
 if s:tmux_view
   set nolazyredraw
   if exists('&ttyscroll')
@@ -59,6 +61,7 @@ augroup IpdbExecutionCursor
 augroup END
 " Defer full redraw until window events finish; never redraw recursively.
 let s:screen_layout = ''
+let s:screen_viewport = []
 let s:redraw_timer = -1
 let s:redrawing = 0
 let s:force_redraw = 0
@@ -89,9 +92,12 @@ function! IpdbQueueClientRefresh() abort
   " Run after Vim flushes its drawing commands; coalesce rapid navigation.
   let s:client_refresh_timer = timer_start(30, function('IpdbRefreshClient'))
 endfunction
+function! s:SourceViewport(view) abort
+  return [win_getid(), bufnr('%'), a:view.topline, a:view.topfill,
+        \ a:view.leftcol, get(a:view, 'skipcol', 0), winwidth(0), winheight(0)]
+endfunction
 function! IpdbViewSignature() abort
   let view = winsaveview()
-  let viewport = [view.topline, view.topfill, view.leftcol, get(view, 'skipcol', 0)]
   let folds = []
   if &l:foldenable
     let row = view.topline
@@ -107,23 +113,24 @@ function! IpdbViewSignature() abort
     endwhile
   endif
   let pattern = index(['/', '?'], getcmdtype()) >= 0 ? getcmdline() : @/
-  return string([win_getid(), bufnr('%'), b:changedtick, viewport,
-        \ winwidth(0), winheight(0), &wrap, &foldenable, &foldlevel,
+  return string([s:SourceViewport(view), b:changedtick, &wrap, &foldenable, &foldlevel,
         \ folds, pattern, &hlsearch, v:hlsearch])
 endfunction
+function! s:CanRedraw() abort
+  let current_mode = mode(1)
+  return current_mode =~# '^n' || (current_mode =~# '^c' && index(['/', '?'], getcmdtype()) >= 0)
+endfunction
 function! IpdbSourceRedraw(force) abort
-  if mode(1) !~# '^n' && !(mode(1) =~# '^c' && index(['/', '?'], getcmdtype()) >= 0)
+  if s:redrawing || !s:CanRedraw()
     return 0
   endif
-  if s:redrawing
-    return 0
-  endif
+  let moved = s:track_viewport && s:SourceViewport(winsaveview()) !=# s:screen_viewport
   let layout = s:tmux_view ? IpdbViewSignature() : ''
-  if a:force || (s:tmux_view && layout !=# s:screen_layout)
+  if a:force || moved || (s:tmux_view && layout !=# s:screen_layout)
     let s:redrawing = 1
     try
       if has('gui_running') || (has('ttyin') && has('ttyout'))
-        if s:tmux_view
+        if s:tmux_view || (s:windows_console_view && moved && !a:force)
           redraw!
           call IpdbQueueClientRefresh()
         else
@@ -132,6 +139,9 @@ function! IpdbSourceRedraw(force) abort
       endif
       if s:tmux_view
         let s:screen_layout = IpdbViewSignature()
+      endif
+      if s:track_viewport
+        let s:screen_viewport = s:SourceViewport(winsaveview())
       endif
     finally
       let s:redrawing = 0
@@ -142,19 +152,25 @@ function! IpdbSourceRedraw(force) abort
 endfunction
 function! IpdbDeferredRedraw(timer) abort
   let s:redraw_timer = -1
+  if !s:CanRedraw()
+    return
+  endif
   let force = s:force_redraw
   let s:force_redraw = 0
   call IpdbSourceRedraw(force)
 endfunction
 function! IpdbQueueRedraw(...) abort
-  if !s:tmux_view || s:redrawing
+  if !s:track_viewport || s:redrawing
+    return
+  endif
+  if s:windows_console_view && s:SourceViewport(winsaveview()) ==# s:screen_viewport
     return
   endif
   let s:force_redraw = s:force_redraw || (a:0 && a:1)
   if s:redraw_timer != -1
     call timer_stop(s:redraw_timer)
   endif
-  " Let Vim draw normally while scrolling. Repaint the tmux view once it settles.
+  " Let Vim draw normally while scrolling. Repair the view once it settles.
   let s:redraw_timer = timer_start(s:force_redraw ? 10 : 75, function('IpdbDeferredRedraw'))
 endfunction
 function! IpdbSearchRedraw() abort
@@ -173,9 +189,11 @@ augroup PortableIpdbRedraw
     if exists('##CmdlineLeave')
       autocmd CmdlineLeave * call IpdbSearchRedraw()
     endif
-    if exists('##WinScrolled')
-      autocmd WinScrolled * call IpdbQueueRedraw()
-    endif
+  elseif s:windows_console_view
+    autocmd CursorMoved,VimResized,WinEnter,BufWinEnter,TabEnter * call IpdbQueueRedraw()
+  endif
+  if s:track_viewport && exists('##WinScrolled')
+    autocmd WinScrolled * call IpdbQueueRedraw()
   endif
 augroup END
 let s:probe_token = ''
@@ -239,10 +257,20 @@ function! IpdbSourcePoll(timer) abort
     qa
     return
   endif
+  " Older Vim can change only the viewport without emitting CursorMoved.
+  " Also resume a repair deferred while a prompt or the other pane had focus.
+  if a:timer != 0 && s:track_viewport && s:redraw_timer == -1
+        \ && (s:force_redraw || s:SourceViewport(winsaveview()) !=# s:screen_viewport)
+    call IpdbQueueRedraw()
+  endif
   if !filereadable($IPDB_VIM_STATE)
     return
   endif
-  let raw = join(readfile($IPDB_VIM_STATE), "\n")
+  try
+    let raw = join(readfile($IPDB_VIM_STATE), "\n")
+  catch /^Vim\%((\a\+)\)\=:E484:/
+    return
+  endtry
   if raw ==# s:last
     return
   endif
@@ -316,7 +344,9 @@ function! IpdbSourcePoll(timer) abort
   finally
     call win_gotoid(previous)
     call IpdbSourceRedraw(1)
-    call IpdbQueueRedraw(1)
+    if s:tmux_view
+      call IpdbQueueRedraw(1)
+    endif
   endtry
 endfunction
 let g:ipdb_source_timer = timer_start(100, function('IpdbSourcePoll'), {'repeat': -1})
@@ -367,13 +397,20 @@ function! IpdbWindowMove(direction) abort
       let s:force_redraw = 0
       " Preserve command text already delivered to Vim during the pane switch.
       let keys = []
+      let special = {"\<BS>": 'BSpace', "\<Del>": 'DC', "\<Left>": 'Left',
+            \ "\<Right>": 'Right', "\<Up>": 'Up', "\<Down>": 'Down', "\<Home>": 'Home',
+            \ "\<End>": 'End', "\<PageUp>": 'PPage', "\<PageDown>": 'NPage', "\<S-Tab>": 'BTab'}
       while 1
         let pending = getchar(1)
-        if type(pending) != type(0) || pending == 0 || pending == 23
+        if pending is 0 || pending is 23
           break
         endif
         let character = getchar(0)
-        if character == 10 || character == 13
+        if type(character) == type('')
+          if has_key(special, character)
+            call add(keys, special[character])
+          endif
+        elseif character == 10 || character == 13
           call add(keys, 'Enter')
         elseif character == 8 || character == 127
           call add(keys, 'BSpace')
@@ -381,12 +418,15 @@ function! IpdbWindowMove(direction) abort
           call add(keys, 'Escape')
         elseif character < 32
           call add(keys, 'C-' . nr2char(character + 96))
+        elseif character == 59
+          " A literal semicolon must survive tmux's command parser.
+          call add(keys, shellescape('\;'))
         else
           call add(keys, shellescape(nr2char(character)))
         endif
       endwhile
       if !empty(keys)
-        call system(tmux . ' send-keys -t ' . shellescape(target) . ' ' . join(keys, ' '))
+        call system(tmux . ' send-keys -t ' . shellescape(target) . ' -- ' . join(keys, ' '))
       endif
       return
     endif
@@ -459,7 +499,17 @@ function! IpdbViewDump(path) abort
     let report.tmux_version = systemlist(shellescape($IPDB_TMUX_BIN) . ' -V')
     let report.tmux_panes = systemlist(command . ' list-panes -F ' . shellescape('#{pane_id} #{pane_width}x#{pane_height} #{pane_current_command}'))
   endif
-  call writefile([json_encode(report)], output)
+  let temporary = output . '.ipdb-' . getpid() . '.tmp'
+  try
+    call writefile([json_encode(report)], temporary)
+    if rename(temporary, output) != 0
+      throw 'ipdb: could not publish the view diagnostic'
+    endif
+  finally
+    if filereadable(temporary)
+      call delete(temporary)
+    endif
+  endtry
   echom 'ipdb view diagnostic saved: ' . fnamemodify(output, ':p')
 endfunction
 command! -nargs=? -complete=file IpdbViewDump call IpdbViewDump(<q-args>)

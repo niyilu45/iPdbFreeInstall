@@ -201,6 +201,124 @@ class FocusTests(unittest.TestCase):
                 owner.terminate()
                 owner.wait(timeout=10)
 
+    def test_switch_preserves_queued_command_editing_keys(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            script = root / 'sample.py'
+            script.write_text('value = 41\nprint(value)\n')
+            with self.LaunchTmux(root, script) as session:
+                master, process, output, config, Wait, Call = session
+                state = Path(config['state'])
+                os.write(master, b'n\n')
+                Wait(lambda: json.loads(state.read_text())['line'] == 2, 'frame with value')
+                for sequence, result in (
+                        (r'p val\<Tab> + 74000\<CR>', '74041'),
+                        (r'!print(741923a\<BS>)\<CR>', '741923'),
+                        (r'p 7419200\<Left>8\<CR>', '74192080'),
+                        (r'!x=741925;print(x)\<CR>', '741925')):
+                    os.write(master, b'\x17k')
+                    Wait(lambda: Call('display-message', '-p', '-t', 'debug:0', '#{pane_index}') == '0',
+                         'source before editing keys')
+                    # Queue keys in Vim so they must be forwarded by the pane switch.
+                    os.write(master, (r':call feedkeys("\<C-w>j' + sequence + '", "mt")' + '\r').encode())
+                    Wait(lambda: result in Call('capture-pane', '-p', '-t', 'debug:0.1').splitlines(),
+                         'missing forwarded editing keys for ' + sequence, 3)
+                os.write(master, b'q\n')
+                Wait(lambda: b'Press Enter' in output, 'exit prompt')
+                os.write(master, b'\n')
+                self.assertEqual(process.wait(timeout=10), 0)
+
+    def test_fast_resize_keys_and_mouse_focus(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            script = root / 'sample.py'
+            script.write_text('value = 41\n' + ''.join('# source {}\n'.format(i) for i in range(120)))
+            with self.LaunchTmux(root, script) as session:
+                master, process, output, config, Wait, Call = session
+
+                def Height(pane):
+                    return int(Call('display-message', '-p', '-t', 'debug:0.' + pane, '#{pane_height}'))
+
+                def KeyTable():
+                    return Call('list-clients', '-F', '#{client_key_table}')
+
+                def Active():
+                    return Call('display-message', '-p', '-t', 'debug:0', '#{pane_index}')
+
+                def FirstSourceRow():
+                    return next((row.strip() for row in Call('capture-pane', '-p', '-t', 'debug:0.0').splitlines()
+                                 if row.strip().startswith('# source ')), None)
+
+                original = Height('1')
+                os.write(master, b'\x175+')
+                Wait(lambda: Height('1') == original + 5 and KeyTable() == 'root', 'fast height increase')
+                os.write(master, b'\x173-')
+                Wait(lambda: Height('1') == original + 2 and KeyTable() == 'root', 'fast height decrease')
+                os.write(master, b'\x17=')
+                Wait(lambda: abs(Height('0') - Height('1')) <= 1 and KeyTable() == 'root', 'equal heights')
+
+                os.write(master, b'\x17')
+                Wait(lambda: KeyTable() == 'ipdb-nav', 'pending navigation before mouse click')
+                os.write(master, b'\x1b[<0;10;3M\x1b[<0;10;3m')
+                Wait(lambda: Active() == '0' and KeyTable() == 'root', 'source click resets navigation table')
+                Wait(FirstSourceRow, 'source before wheel scroll')
+                previous = FirstSourceRow()
+                os.write(master, b'\x1b[<65;10;4M' * 4)
+                Wait(lambda: FirstSourceRow() not in (None, previous), 'wheel scroll')
+                self.assertEqual(Call('display-message', '-p', '-t', 'debug:0.0', '#{pane_in_mode}'), '0')
+
+                row = int(Call('display-message', '-p', '-t', 'debug:0.1', '#{pane_top}')) + 2
+                click = '\x1b[<0;10;{0}M\x1b[<0;10;{0}m'.format(row).encode()
+                for index, mode_keys in enumerate(('emacs', 'vi')):
+                    time.sleep(0.55)  # Separate single clicks from tmux's double-click sequence.
+                    Call('set-window-option', '-t', 'debug:0', 'mode-keys', mode_keys)
+                    Call('copy-mode', '-t', 'debug:0.1')
+                    self.assertEqual(Call('display-message', '-p', '-t', 'debug:0.1', '#{pane_in_mode}'), '1')
+                    os.write(master, click)
+                    Wait(lambda: Active() == '1' and KeyTable() == 'root'
+                         and Call('display-message', '-p', '-t', 'debug:0.1', '#{pane_in_mode}') == '0',
+                         'debugger click leaves copy mode')
+                    result = str(841923 + index)
+                    os.write(master, '!print({})\n'.format(result).encode())
+                    Wait(lambda: result in Call('capture-pane', '-p', '-t', 'debug:0.1').splitlines(),
+                         'command after mouse focus')
+                    if index == 0:
+                        os.write(master, b'\x17k')
+                        Wait(lambda: Active() == '0', 'source focus before testing vi copy mode')
+
+                os.write(master, b'q\n')
+                Wait(lambda: b'Press Enter' in output, 'exit prompt')
+                os.write(master, b'\n')
+                self.assertEqual(process.wait(timeout=10), 0)
+
+    def test_two_sessions_keep_source_and_input_separate(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            first, second = root / 'first', root / 'second'
+            for holder in (first, second):
+                holder.mkdir()
+                (holder / 'sample.py').write_text('value = 41\nprint(value)\n')
+            with self.LaunchTmux(first, first / 'sample.py') as session1, \
+                    self.LaunchTmux(second, second / 'sample.py') as session2:
+                master1, process1, output1, config1, wait1, _ = session1
+                master2, process2, output2, config2, wait2, call2 = session2
+                source1, source2 = Path(config1['state']), Path(config2['state'])
+                self.assertNotEqual(config1['tmux'], config2['tmux'])
+                os.write(master1, b'n\n')
+                wait1(lambda: json.loads(source1.read_text())['line'] == 2, 'step in first session')
+                self.assertEqual(json.loads(source2.read_text())['line'], 1)
+                os.write(master1, b'q\n')
+                wait1(lambda: b'Press Enter' in output1, 'first session exit prompt')
+                os.write(master1, b'\n')
+                self.assertEqual(process1.wait(timeout=10), 0)
+                os.write(master2, b'!print(841925)\n')
+                wait2(lambda: '841925' in call2('capture-pane', '-p', '-t', 'debug:0.1').splitlines(),
+                      'second session accepts a command after first session exits')
+                os.write(master2, b'q\n')
+                wait2(lambda: b'Press Enter' in output2, 'second session exit prompt')
+                os.write(master2, b'\n')
+                self.assertEqual(process2.wait(timeout=10), 0)
+
     def test_ctrl_c_pauses_loop_in_command_pane(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

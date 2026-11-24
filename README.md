@@ -649,9 +649,9 @@ handled by the terminal for text copying and may bypass application focus; use
 a regular click before typing commands after terminal-side selection.
 
 
-On Windows and in gVim, the source view uses Vim's normal redraw. Under tmux,
-the bridge can request a full redraw once scrolling or a viewport jump settles.
-Moving the cursor inside the same viewport does not trigger that redraw.
+In Windows console Vim and tmux, the bridge repairs the source display once
+scrolling, paging, or a viewport jump settles. Moving the cursor inside the same
+viewport does not trigger a full redraw. gVim uses Vim's normal redraw.
 Ctrl-L remains Vim's manual redraw key.
 
 
@@ -679,7 +679,8 @@ For system Vim under tmux, the bridge disables terminal line-scroll reuse
 This favors explicit repainting on terminals that leave old text behind.
 The view signature includes buffer identity, edits, horizontal and wrapped-line
 offsets, and visible folds. Cursor events also detect scrolling in older Vim
-versions without a dedicated scroll event.
+versions without a dedicated scroll event. A viewport check also covers
+scrolling that leaves the cursor stationary and changes with no window event.
 Regression scenarios include counted G, gg, searches, marks, page movement,
 horizontal scrolling, folds, edits and split-window navigation. This does not
 constitute validation of every terminal/Vim/plugin combination. If artifacts

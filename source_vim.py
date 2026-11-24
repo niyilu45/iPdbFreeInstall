@@ -295,8 +295,8 @@ def Run(arguments):
             Tmux('set-window-option', '-t', 'debug:0', 'window-status-current-format',
                  '#I:#{?#{==:#{pane_id},' + source_id + '},VIM,IPDB}#F')
             mouse_action = 'select-pane -t = ; switch-client -T root ; if-shell -F "#{pane_in_mode}" "send-keys -X cancel" ; send-keys -M'
-            Tmux('bind-key', '-n', 'MouseDown1Pane', mouse_action)
-            Tmux('bind-key', '-T', 'ipdb-nav', 'MouseDown1Pane', mouse_action)
+            for table in ('root', 'ipdb-nav', 'copy-mode', 'copy-mode-vi'):
+                Tmux('bind-key', '-T', table, 'MouseDown1Pane', mouse_action)
             Tmux('bind-key', 'k', 'select-pane', '-U')
             Tmux('bind-key', 'j', 'select-pane', '-D')
             def ResizeCommand(key):
@@ -311,6 +311,8 @@ def Run(arguments):
                 Tmux('bind-key', '-T', 'ipdb-nav', key, 'select-pane ' + direction + ' ; switch-client -T root')
                 Tmux('bind-key', '-T', 'ipdb-nav', 'C-' + key, 'select-pane ' + direction + ' ; switch-client -T root')
             Tmux('bind-key', '-T', 'ipdb-nav', 'C-w', 'send-keys C-w ; switch-client -T root')
+            # A fast Ctrl-W sequence is navigation, even when all keys arrive together.
+            Tmux('set-option', '-t', 'debug', 'assume-paste-time', '0')
             Tmux('select-pane', '-t', 'debug:0.1')
             code = subprocess.call(command + ['attach-session', '-t', 'debug'], env=environment)
             return int((root / 'result').read_text()) if (root / 'result').exists() else code

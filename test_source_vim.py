@@ -392,13 +392,26 @@ qa!
                 self.assertTrue((root / 'ready').exists())
                 while 'row_0001' not in Tmux('capture-pane', '-p', '-t', 'cells:0.0') and time.monotonic() < deadline:
                     time.sleep(0.05)
+                def VisibleRows():
+                    screen = Tmux('capture-pane', '-p', '-t', 'cells:0.0')
+                    visible = [line.strip().lstrip('>').strip() for line in screen.splitlines() if 'row_' in line]
+                    self.assertTrue(visible and all(line in rows for line in visible), screen)
+                    numbers = [int(line[4:8]) for line in visible]
+                    self.assertEqual(numbers, list(range(numbers[0], numbers[-1] + 1)), screen)
+                    return numbers
+
                 for target in (200, 12, 180, 35, 1):
                     Tmux('send-keys', '-t', 'cells:0.0', str(target) + 'G')
                     time.sleep(0.2)
-                    screen = Tmux('capture-pane', '-p', '-t', 'cells:0.0')
-                    visible = [line.strip().lstrip('>').strip() for line in screen.splitlines() if 'row_' in line]
-                    self.assertTrue(any(line.startswith('row_{:04d}'.format(target)) for line in visible), screen)
-                    self.assertTrue(all(line in rows for line in visible), screen)
+                    self.assertIn(target, VisibleRows())
+                previous = VisibleRows()[0]
+                for key, direction in (('C-f', 1), ('C-b', -1), ('C-d', 1), ('C-u', -1),
+                                       ('PageDown', 1), ('PageUp', -1)):
+                    Tmux('send-keys', '-t', 'cells:0.0', key)
+                    time.sleep(0.2)
+                    current = VisibleRows()[0]
+                    self.assertGreater((current - previous) * direction, 0, key)
+                    previous = current
                 Publish(state, str(other), 2)
                 time.sleep(0.3)
                 screen = Tmux('capture-pane', '-p', '-t', 'cells:0.0')
@@ -449,17 +462,26 @@ qa!
                 WaitFor(b'ipdb>')
                 output.clear()
                 os.write(master, b'\x17k')
-                time.sleep(0.2)
+                time.sleep(0.45)  # Let the focus repaint and client refresh finish.
                 count = len(refresh_log.read_text().splitlines()) if refresh_log.exists() else 0
                 os.write(master, b'j')
                 time.sleep(0.25)
                 self.assertEqual(len(refresh_log.read_text().splitlines()), count,
                                  'Cursor motion inside the viewport must not request a client repaint')
+                # Simulate older Vim or dropped events. Ctrl+E can scroll without moving the cursor.
+                os.write(master, b":let &eventignore = exists('##WinScrolled') ? 'CursorMoved,WinScrolled' : 'CursorMoved'\r")
+                time.sleep(0.15)
+                os.write(master, b'\x05')
+                time.sleep(0.4)
+                scrolled = len(refresh_log.read_text().splitlines())
+                self.assertGreater(scrolled, count, 'Viewport scrolling must refresh without cursor or scroll events')
+                os.write(master, b':set eventignore&\r')
+                time.sleep(0.15)
                 os.write(master, b'G')
                 time.sleep(0.25)
                 self.assertTrue(refresh_log.exists())
                 refreshed = len(refresh_log.read_text().splitlines())
-                self.assertGreater(refreshed, count, 'Viewport jumps must request a client repaint')
+                self.assertGreater(refreshed, scrolled, 'Viewport jumps must request a client repaint')
                 time.sleep(0.2)
                 self.assertEqual(len(refresh_log.read_text().splitlines()), refreshed, 'Idle sessions must not repaint repeatedly')
                 os.write(master, b'\x17j')
