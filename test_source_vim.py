@@ -86,7 +86,7 @@ class VimTests(unittest.TestCase):
                 env=dict(os.environ, IPDB_VIM_STATE=str(state), IPY_TEST_SIMPLE_PROMPT='1', IPYTHONDIR=directory))
             self.assertEqual(result.returncode, 0, result.stdout)
             self.assertIn('Vim session directory is missing', result.stdout)
-            self.assertIn('value = 42', result.stdout)
+            self.assertIn('value = 42', re.sub(r'\x1b\[[0-9;]*m', '', result.stdout))
             self.assertFalse(state.parent.exists())
 
     def test_command_pane_hides_automatic_source_but_keeps_displays(self):
@@ -292,10 +292,15 @@ wincmd l
 normal! gg
 let still = win_getid()
 wincmd h
+normal! gg0
+let first_viewport = IpdbViewSignature()
+normal! 2l
+call assert_equal(first_viewport, IpdbViewSignature())
 normal! G
 call assert_equal(200, line('.'))
 call assert_equal(0, IpdbSourceRedraw(1))
 call assert_true(winsaveview().topline > 1)
+call assert_notequal(first_viewport, IpdbViewSignature())
 call win_gotoid(still)
 call assert_equal(1, line('.'))
 call IpdbSourceRedraw(1)
@@ -335,6 +340,28 @@ qa!
             result = subprocess.run([shutil.which('vim'), '-V1' + str(root / 'vim.log'), '-N', '-u', str(root / 'vimrc'), '-i', 'NONE', '-n', '-es', '-S', str(script)], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=20)
             self.assertEqual(result.returncode, 0, (root / 'vim.log').read_text(errors='replace'))
             self.assertEqual((root / 'ready').read_text().strip(), 'ready')
+            self.assertEqual((root / 'errors').read_text(), '')
+
+    @unittest.skipUnless(shutil.which('vim'), 'System Vim required')
+    def test_native_vim_cursor_motion_does_not_queue_a_bridge_redraw(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            script = root / 'cursor.vim'
+            script.write_text('''execute 'source ' . fnameescape($IPDB_BRIDGE)
+let before = map(timer_info(), 'v:val.id')
+call setline(1, 'cursor motion')
+normal! 3l
+doautocmd CursorMoved
+call assert_equal(before, map(timer_info(), 'v:val.id'))
+call writefile(v:errors, $IPDB_TEST_ERRORS)
+qa!
+''')
+            env = dict(os.environ, IPDB_TMUX_SOCKET='', IPDB_TEST_ERRORS=str(root / 'errors'),
+                       IPDB_VIM_READY=str(root / 'ready'), IPDB_VIM_STATE=str(root / 'state'),
+                       IPDB_BRIDGE=str(Path(__file__).with_name('source_vim.vim').resolve()))
+            result = subprocess.run([shutil.which('vim'), '-N', '-u', 'NONE', '-i', 'NONE', '-n', '-es', '-S', str(script)],
+                                    env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=20)
+            self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual((root / 'errors').read_text(), '')
 
     @unittest.skipUnless(sys.platform.startswith('linux') and shutil.which('vim') and shutil.which('tmux'), 'Linux Vim/tmux required')
@@ -391,7 +418,7 @@ qa!
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             script = root / 'sample.py'
-            script.write_text('value = 41\nprint("RESULT", value + 1)\n')
+            script.write_text('value = 41\nprint("RESULT", value + 1)\n' + '# source row\n' * 120)
             master, slave = pty.openpty()
             fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 40, 120, 0, 0))
             launcher = Path(__file__).with_name('ipdbVim.sh').resolve()
@@ -424,11 +451,15 @@ qa!
                 os.write(master, b'\x17k')
                 time.sleep(0.2)
                 count = len(refresh_log.read_text().splitlines()) if refresh_log.exists() else 0
+                os.write(master, b'j')
+                time.sleep(0.25)
+                self.assertEqual(len(refresh_log.read_text().splitlines()), count,
+                                 'Cursor motion inside the viewport must not request a client repaint')
                 os.write(master, b'G')
                 time.sleep(0.25)
                 self.assertTrue(refresh_log.exists())
                 refreshed = len(refresh_log.read_text().splitlines())
-                self.assertGreater(refreshed, count, 'Source navigation must request a client repaint')
+                self.assertGreater(refreshed, count, 'Viewport jumps must request a client repaint')
                 time.sleep(0.2)
                 self.assertEqual(len(refresh_log.read_text().splitlines()), refreshed, 'Idle sessions must not repaint repeatedly')
                 os.write(master, b'\x17j')

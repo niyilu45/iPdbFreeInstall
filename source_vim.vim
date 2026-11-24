@@ -26,7 +26,8 @@ cnoreabbrev <expr> wa getcmdtype() ==# ':' && getcmdline() ==# 'wa' ? 'silent wa
 cnoreabbrev <expr> wall getcmdtype() ==# ':' && getcmdline() ==# 'wall' ? 'silent wall' : 'wall'
 " Avoid terminal line-scroll and background-erase optimizations in tmux.
 " Some outer terminals leave cells intact even after a normal Ctrl-L redraw.
-if !empty($IPDB_TMUX_SOCKET)
+let s:tmux_view = !empty($IPDB_TMUX_SOCKET)
+if s:tmux_view
   set nolazyredraw
   if exists('&ttyscroll')
     set ttyscroll=0
@@ -90,9 +91,25 @@ function! IpdbQueueClientRefresh() abort
 endfunction
 function! IpdbViewSignature() abort
   let view = winsaveview()
-  return string([win_getid(), bufnr('%'), b:changedtick, view,
+  let viewport = [view.topline, view.topfill, view.leftcol, get(view, 'skipcol', 0)]
+  let folds = []
+  if &l:foldenable
+    let row = view.topline
+    let last = max([row, line('w$')])
+    while row <= last
+      let end = foldclosedend(row)
+      if end >= row
+        call add(folds, [foldclosed(row), end])
+        let row = end + 1
+      else
+        let row += 1
+      endif
+    endwhile
+  endif
+  let pattern = index(['/', '?'], getcmdtype()) >= 0 ? getcmdline() : @/
+  return string([win_getid(), bufnr('%'), b:changedtick, viewport,
         \ winwidth(0), winheight(0), &wrap, &foldenable, &foldlevel,
-        \ foldclosed(line('.')), foldclosedend(line('.')), @/, &hlsearch, v:hlsearch])
+        \ folds, pattern, &hlsearch, v:hlsearch])
 endfunction
 function! IpdbSourceRedraw(force) abort
   if mode(1) !~# '^n' && !(mode(1) =~# '^c' && index(['/', '?'], getcmdtype()) >= 0)
@@ -101,15 +118,21 @@ function! IpdbSourceRedraw(force) abort
   if s:redrawing
     return 0
   endif
-  let layout = IpdbViewSignature()
-  if a:force || layout !=# s:screen_layout
+  let layout = s:tmux_view ? IpdbViewSignature() : ''
+  if a:force || (s:tmux_view && layout !=# s:screen_layout)
     let s:redrawing = 1
     try
       if has('gui_running') || (has('ttyin') && has('ttyout'))
-        redraw!
-        call IpdbQueueClientRefresh()
+        if s:tmux_view
+          redraw!
+          call IpdbQueueClientRefresh()
+        else
+          redraw
+        endif
       endif
-      let s:screen_layout = IpdbViewSignature()
+      if s:tmux_view
+        let s:screen_layout = IpdbViewSignature()
+      endif
     finally
       let s:redrawing = 0
     endtry
@@ -124,31 +147,35 @@ function! IpdbDeferredRedraw(timer) abort
   call IpdbSourceRedraw(force)
 endfunction
 function! IpdbQueueRedraw(...) abort
-  if a:0 && a:1
-    let s:force_redraw = 1
+  if !s:tmux_view || s:redrawing
+    return
   endif
-  if s:redraw_timer == -1 && !s:redrawing
-    let s:redraw_timer = timer_start(10, function('IpdbDeferredRedraw'))
+  let s:force_redraw = s:force_redraw || (a:0 && a:1)
+  if s:redraw_timer != -1
+    call timer_stop(s:redraw_timer)
   endif
+  " Let Vim draw normally while scrolling. Repaint the tmux view once it settles.
+  let s:redraw_timer = timer_start(s:force_redraw ? 10 : 75, function('IpdbDeferredRedraw'))
 endfunction
 function! IpdbSearchRedraw() abort
   if index(['/', '?'], getcmdtype()) >= 0
-    call IpdbQueueRedraw(1)
+    call IpdbQueueRedraw()
   endif
 endfunction
 augroup PortableIpdbRedraw
   autocmd!
-  autocmd CursorMoved,CursorMovedI * call IpdbQueueRedraw()
-  autocmd WinEnter,BufWinEnter,VimResized,TabEnter,FocusGained,InsertLeave * call IpdbQueueRedraw(1)
-  autocmd TextChanged,TextChangedI * call IpdbQueueRedraw(1)
-  if exists('##CmdlineChanged')
-    autocmd CmdlineChanged * call IpdbSearchRedraw()
-  endif
-  if exists('##CmdlineLeave')
-    autocmd CmdlineLeave * call IpdbSearchRedraw()
-  endif
-  if exists('##WinScrolled')
-    autocmd WinScrolled * call IpdbQueueRedraw()
+  if s:tmux_view
+    autocmd CursorMoved,CursorMovedI,TextChanged,TextChangedI,InsertLeave * call IpdbQueueRedraw()
+    autocmd WinEnter,BufWinEnter,VimResized,TabEnter,FocusGained * call IpdbQueueRedraw(1)
+    if exists('##CmdlineChanged')
+      autocmd CmdlineChanged * call IpdbSearchRedraw()
+    endif
+    if exists('##CmdlineLeave')
+      autocmd CmdlineLeave * call IpdbSearchRedraw()
+    endif
+    if exists('##WinScrolled')
+      autocmd WinScrolled * call IpdbQueueRedraw()
+    endif
   endif
 augroup END
 let s:probe_token = ''

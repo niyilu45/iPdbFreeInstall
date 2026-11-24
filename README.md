@@ -649,12 +649,10 @@ handled by the terminal for text copying and may bypass application focus; use
 a regular click before typing commands after terminal-side selection.
 
 
-System Vim source views now request a full redraw after viewport changes such
-as G/gg, horizontal scrolling, window switches and resizing. Redraw is queued
-after window events and coalesced; unchanged view signatures do not force
-another repaint. Debugger source synchronization also
-refreshes the screen after restoring the selected window. Ctrl-L remains Vim's
-manual redraw key. Linux tmux visual regression verification is still pending.
+On Windows and in gVim, the source view uses Vim's normal redraw. Under tmux,
+the bridge can request a full redraw once scrolling or a viewport jump settles.
+Moving the cursor inside the same viewport does not trigger that redraw.
+Ctrl-L remains Vim's manual redraw key.
 
 
 In system Vim mode, automatic file/line and source listings are shown only in
@@ -671,17 +669,17 @@ is restored when leaving the command loop.
 
 
 When stepping into another function, the Vim source bridge opens folds at the
-execution line and schedules a second full repaint after buffer/window events
-have settled. Only the main source window follows the step; other source windows
-remain at their saved positions. This supplements the immediate repaint.
+execution line and redraws after restoring the selected window. Under tmux it
+also schedules a follow-up repaint. Only the main source window follows the
+step; other source windows remain at their saved positions.
 
 
 For system Vim under tmux, the bridge disables terminal line-scroll reuse
 (ttyscroll=0), delayed redraw, and background-color erase optimization (t_ut).
 This favors explicit repainting on terminals that leave old text behind.
-The view signature now includes buffer identity, edits, wrapped-line offsets,
-fold state and cursor/view changes. A low-frequency poll also covers old Vim
-versions where scrolling/folding does not emit a suitable window event.
+The view signature includes buffer identity, edits, horizontal and wrapped-line
+offsets, and visible folds. Cursor events also detect scrolling in older Vim
+versions without a dedicated scroll event.
 Regression scenarios include counted G, gg, searches, marks, page movement,
 horizontal scrolling, folds, edits and split-window navigation. This does not
 constitute validation of every terminal/Vim/plugin combination. If artifacts
