@@ -8,6 +8,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from launch_mode import SelectMode
 from source_vim import Publish, Shell
 
@@ -36,7 +37,6 @@ class VimTests(unittest.TestCase):
         self.assertEqual(shlex.split(Shell(values)), ['exec'] + values)
 
     def test_clean_vim_is_opt_in(self):
-        from unittest import mock
         from source_vim import VimCommand
         with mock.patch.dict(os.environ, {'IPDB_VIM_CLEAN': '1'}):
             self.assertEqual(VimCommand('vim', 'bridge.vim'), ['vim', '-N', '-u', 'NONE', '-i', 'NONE', '-S', 'bridge.vim'])
@@ -51,6 +51,42 @@ class VimTests(unittest.TestCase):
             self.assertEqual(value['line'], 7)
             self.assertTrue(os.path.isabs(value['file']))
             self.assertEqual(len(list(Path(directory).iterdir())), 1)
+
+    def test_source_sync_retries_a_removed_or_locked_temporary_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'state'
+            original_replace = os.replace
+            attempts = []
+
+            def Replace(temporary, target):
+                attempts.append(temporary)
+                if len(attempts) == 1:
+                    os.unlink(temporary)
+                if len(attempts) == 2:
+                    raise PermissionError('Sharing violation')
+                original_replace(temporary, target)
+
+            with mock.patch('source_vim.os.replace', side_effect=Replace), mock.patch('source_vim.time.sleep'):
+                Publish(path, 'my file.py', 7)
+            self.assertEqual(len(set(attempts)), 3)
+            self.assertEqual(json.loads(path.read_text())['line'], 7)
+            self.assertEqual(list(path.parent.iterdir()), [path])
+
+    def test_missing_session_displays_the_current_source_in_ipdb(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            script = root / 'sample.py'
+            script.write_text('value = 42\n')
+            state = root / 'missing-session' / 'state'
+            launcher = Path(__file__).with_name('portable_ipdb.py').resolve()
+            result = subprocess.run([sys.executable, '-B', str(launcher), '--plain', str(script)],
+                input='q\n', stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True,
+                cwd=directory, timeout=30,
+                env=dict(os.environ, IPDB_VIM_STATE=str(state), IPY_TEST_SIMPLE_PROMPT='1', IPYTHONDIR=directory))
+            self.assertEqual(result.returncode, 0, result.stdout)
+            self.assertIn('Vim session directory is missing', result.stdout)
+            self.assertIn('value = 42', result.stdout)
+            self.assertFalse(state.parent.exists())
 
     def test_command_pane_hides_automatic_source_but_keeps_displays(self):
         with tempfile.TemporaryDirectory() as directory:

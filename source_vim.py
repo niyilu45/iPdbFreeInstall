@@ -1,4 +1,5 @@
 """System Vim source view in an isolated tmux session."""
+import errno
 import json
 import os
 from pathlib import Path
@@ -12,10 +13,30 @@ import uuid
 
 
 def Publish(path, filename, line):
-    temporary = str(path) + '.' + str(os.getpid()) + '.tmp'
-    with open(temporary, 'w', encoding='utf-8') as stream:
-        json.dump({'file': os.path.abspath(filename), 'line': line, 'event': time.time()}, stream)
-    os.replace(temporary, str(path))
+    target = Path(path)
+    message = {'file': os.path.abspath(filename), 'line': line, 'event': time.time()}
+    for delay in (0.02, 0.05, 0.1, 0):
+        temporary = None
+        try:
+            with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', dir=str(target.parent),
+                                             prefix=target.name + '.', suffix='.tmp', delete=False) as stream:
+                temporary = stream.name
+                json.dump(message, stream)
+            os.replace(temporary, str(target))
+            temporary = None
+            return
+        except (FileNotFoundError, PermissionError) as error:
+            if isinstance(error, FileNotFoundError) and not target.parent.is_dir():
+                raise FileNotFoundError(errno.ENOENT, 'Vim session directory is missing', str(target.parent)) from error
+            if not delay:
+                raise
+        finally:
+            if temporary is not None:
+                try:
+                    os.unlink(temporary)
+                except (FileNotFoundError, PermissionError):
+                    pass
+        time.sleep(delay)
 
 
 def ViewCode(before, after):
@@ -150,6 +171,7 @@ def InstallHook(path):
             Publish(path, frame.f_code.co_filename, line)
         except OSError as error:
             self.error('Vim source sync failed: {}'.format(error))
+            return original(self, frame_lineno, *args, **kwargs)
         show = getattr(self, '_portable_show_displays', None)
         if show is not None:
             show(frame)

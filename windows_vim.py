@@ -59,6 +59,12 @@ def Debug(config):
             ConfirmConEmuSplit(config['source_pane'])
         WaitReady(config)
         debugger = subprocess.Popen(config['debugger'], env=Environment(config, origin), cwd=config['cwd'])
+        if 'debugger_pid' in config:
+            try:
+                WriteMarker(config['debugger_pid'], str(debugger.pid))
+            except OSError as error:
+                # The debugger is already running. Keep waiting for it.
+                print('[ipdb] Could not record the debugger process: {}'.format(error), flush=True)
         code = WaitForDebugger(debugger)
     except (OSError, RuntimeError, ValueError, subprocess.TimeoutExpired) as error:
         print('[ipdb] ' + str(error), flush=True)
@@ -327,35 +333,46 @@ def InstallConEmuKeys():
 
 
 def IsRunning(pid):
+    """Return None when Windows cannot determine the process status."""
     import ctypes
     from ctypes import wintypes
     kernel = ctypes.WinDLL('kernel32', use_last_error=True)
     kernel.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
     kernel.OpenProcess.restype = wintypes.HANDLE
     kernel.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+    kernel.WaitForSingleObject.restype = wintypes.DWORD
     kernel.CloseHandle.argtypes = [wintypes.HANDLE]
     handle = kernel.OpenProcess(0x00100000, False, pid)
     if not handle:
-        return False
+        # ERROR_INVALID_PARAMETER for this PID means it no longer exists.
+        # Access denied can also occur for a still-running elevated pane.
+        return False if ctypes.get_last_error() == 87 else None
     try:
-        return kernel.WaitForSingleObject(handle, 0) == 258
+        status = kernel.WaitForSingleObject(handle, 0)
+        return {0: False, 258: True}.get(status)
     finally:
         kernel.CloseHandle(handle)
 
 
 def WaitForDebugPane(config, terminal):
+    done = Path(config['done'])
+    worker = Path(config['debug_pid'])
+    debugger = Path(config['debugger_pid'])
     deadline = time.monotonic() + 20
-    while not Path(config['done']).exists():
-        if Path(config['debug_pid']).exists():
-            if not IsRunning(int(Path(config['debug_pid']).read_text())) and not Path(config['done']).exists():
-                raise RuntimeError('The {} debugger pane was closed'.format(terminal))
-        elif time.monotonic() > deadline:
-            raise RuntimeError('{} did not start the debugger pane'.format(terminal))
+    while True:
         try:
+            if done.exists():
+                return int(Path(config['result']).read_text())
+            if worker.exists():
+                if (IsRunning(int(worker.read_text())) is False
+                        and (not debugger.exists() or IsRunning(int(debugger.read_text())) is False)
+                        and not done.exists()):
+                    raise RuntimeError('The {} debugger pane was closed'.format(terminal))
+            elif time.monotonic() > deadline:
+                raise RuntimeError('{} did not start the debugger pane'.format(terminal))
             time.sleep(0.1)
         except KeyboardInterrupt:
             print('[ipdb] Use q in the debugger pane, then Enter, to finish this session.', flush=True)
-    return int(Path(config['result']).read_text())
 
 
 def Run(arguments):
@@ -370,7 +387,8 @@ def Run(arguments):
     terminal = None if conemu else shutil.which('wt.exe')
     with tempfile.TemporaryDirectory(prefix='ipdb-vim-') as directory:
         root = Path(directory)
-        config = {key: str(root / key) for key in ('state', 'ready', 'close', 'closed', 'result', 'done', 'vim_result', 'debug_pid')}
+        config = {key: str(root / key) for key in
+                  ('state', 'ready', 'close', 'closed', 'result', 'done', 'vim_result', 'debug_pid', 'debugger_pid')}
         from source_vim import VimCommand
         config.update(vim=VimCommand(vim, base / 'source_vim.vim'),
                       debugger=[sys.executable, str(base / 'portable_ipdb.py'), '--plain'] + list(arguments), cwd=os.getcwd())

@@ -52,6 +52,46 @@ class WindowsVimTests(unittest.TestCase):
             self.assertEqual((root / 'result').read_text(), '7')
             self.assertTrue((root / 'done').exists())
 
+    def test_windows_process_probe_distinguishes_exit_from_access_denied(self):
+        kernel = mock.Mock()
+        kernel.OpenProcess.return_value = 0
+        with mock.patch('ctypes.WinDLL', return_value=kernel, create=True), \
+                mock.patch('ctypes.get_last_error', side_effect=[5, 87], create=True):
+            self.assertIsNone(windows_vim.IsRunning(123))
+            self.assertIs(windows_vim.IsRunning(123), False)
+            kernel.OpenProcess.return_value = 1
+            kernel.WaitForSingleObject.side_effect = [258, 0xFFFFFFFF, 0]
+            self.assertIs(windows_vim.IsRunning(123), True)
+            self.assertIsNone(windows_vim.IsRunning(123))
+            self.assertIs(windows_vim.IsRunning(123), False)
+
+    def test_windows_waits_for_session_when_worker_is_unknown_or_debugger_is_alive(self):
+        for statuses in ([None], [False, True], [False, None], [KeyboardInterrupt, True]):
+            with self.subTest(statuses=statuses), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                config = {name: str(root / name) for name in ('done', 'result', 'debug_pid', 'debugger_pid')}
+                (root / 'debug_pid').write_text('123')
+                (root / 'debugger_pid').write_text('456')
+
+                def Finish(_):
+                    (root / 'result').write_text('7')
+                    (root / 'done').touch()
+
+                with mock.patch('windows_vim.IsRunning', side_effect=statuses) as probe, \
+                        mock.patch('windows_vim.time.sleep', side_effect=Finish):
+                    self.assertEqual(windows_vim.WaitForDebugPane(config, 'ConEmu'), 7)
+                self.assertEqual(probe.call_count, len(statuses))
+
+    def test_windows_reports_closed_pane_after_both_processes_exit(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config = {name: str(root / name) for name in ('done', 'result', 'debug_pid', 'debugger_pid')}
+            (root / 'debug_pid').write_text('123')
+            (root / 'debugger_pid').write_text('456')
+            with mock.patch('windows_vim.IsRunning', return_value=False):
+                with self.assertRaisesRegex(RuntimeError, 'ConEmu debugger pane was closed'):
+                    windows_vim.WaitForDebugPane(config, 'ConEmu')
+
     def test_conemu_launcher_waits_for_debugger_in_new_pane(self):
         def OpenPane(config, config_path):
             self.assertEqual(json.loads(config_path.read_text()), config)
