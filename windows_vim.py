@@ -310,6 +310,11 @@ def InstallConEmuKeys():
         count = None
         counted = Condition(lambda: count is not None)
 
+        @bindings.add('c-l')
+        def RedrawPrompt(event):
+            event.app.renderer.erase()
+            event.app.invalidate()
+
         @bindings.add('<any>', filter=counted)
         def CancelCount(event):
             nonlocal count

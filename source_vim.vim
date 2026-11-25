@@ -59,12 +59,10 @@ augroup IpdbExecutionCursor
   autocmd CursorMoved,CursorMovedI,BufEnter,WinEnter * call IpdbExecutionCursor()
   autocmd ColorScheme * highlight default IpdbExecution ctermbg=DarkGrey guibg=#444444
 augroup END
-" Defer full redraw until window events finish; never redraw recursively.
-let s:screen_layout = ''
-let s:screen_viewport = []
+" Coalesce redraw for the window that requested it.
 let s:redraw_timer = -1
+let s:redraw_window = 0
 let s:redrawing = 0
-let s:force_redraw = 0
 let s:client_refresh_timer = -1
 let s:client_refresh_job = v:null
 function! IpdbRefreshClient(timer) abort
@@ -93,7 +91,7 @@ function! IpdbQueueClientRefresh() abort
   let s:client_refresh_timer = timer_start(30, function('IpdbRefreshClient'))
 endfunction
 function! s:SourceViewport(view) abort
-  return [win_getid(), bufnr('%'), a:view.topline, a:view.topfill,
+  return [win_getid(), bufnr('%'), a:view.topline, get(a:view, 'topfill', 0),
         \ a:view.leftcol, get(a:view, 'skipcol', 0), winwidth(0), winheight(0)]
 endfunction
 function! IpdbViewSignature() abort
@@ -120,29 +118,37 @@ function! s:CanRedraw() abort
   let current_mode = mode(1)
   return current_mode =~# '^n' || (current_mode =~# '^c' && index(['/', '?'], getcmdtype()) >= 0)
 endfunction
+function! s:RememberView() abort
+  let w:ipdb_redraw_viewport = s:SourceViewport(winsaveview())
+  if s:tmux_view
+    let w:ipdb_redraw_layout = IpdbViewSignature()
+  endif
+endfunction
+function! s:PrimeView() abort
+  if !exists('w:ipdb_redraw_viewport') || w:ipdb_redraw_viewport[0] != win_getid()
+    call s:RememberView()
+  endif
+endfunction
 function! IpdbSourceRedraw(force) abort
   if s:redrawing || !s:CanRedraw()
     return 0
   endif
-  let moved = s:track_viewport && s:SourceViewport(winsaveview()) !=# s:screen_viewport
+  call s:PrimeView()
+  let moved = s:track_viewport && s:SourceViewport(winsaveview()) !=# w:ipdb_redraw_viewport
   let layout = s:tmux_view ? IpdbViewSignature() : ''
-  if a:force || moved || (s:tmux_view && layout !=# s:screen_layout)
+  if a:force || moved || (s:tmux_view && layout !=# w:ipdb_redraw_layout)
     let s:redrawing = 1
     try
       if has('gui_running') || (has('ttyin') && has('ttyout'))
-        if s:tmux_view || (s:windows_console_view && moved && !a:force)
+        if winnr('$') == 1 && moved && !a:force
           redraw!
-          call IpdbQueueClientRefresh()
         else
+          " Restoring the current view invalidates this window's display cache.
+          call winrestview(winsaveview())
           redraw
         endif
       endif
-      if s:tmux_view
-        let s:screen_layout = IpdbViewSignature()
-      endif
-      if s:track_viewport
-        let s:screen_viewport = s:SourceViewport(winsaveview())
-      endif
+      call s:RememberView()
     finally
       let s:redrawing = 0
     endtry
@@ -152,27 +158,31 @@ function! IpdbSourceRedraw(force) abort
 endfunction
 function! IpdbDeferredRedraw(timer) abort
   let s:redraw_timer = -1
-  if !s:CanRedraw()
-    return
+  if win_getid() == s:redraw_window
+    call IpdbSourceRedraw(0)
   endif
-  let force = s:force_redraw
-  let s:force_redraw = 0
-  call IpdbSourceRedraw(force)
 endfunction
-function! IpdbQueueRedraw(...) abort
+function! IpdbQueueRedraw() abort
   if !s:track_viewport || s:redrawing
     return
   endif
-  if s:windows_console_view && s:SourceViewport(winsaveview()) ==# s:screen_viewport
+  call s:PrimeView()
+  if s:windows_console_view && s:SourceViewport(winsaveview()) ==# w:ipdb_redraw_viewport
     return
   endif
-  let s:force_redraw = s:force_redraw || (a:0 && a:1)
   if s:redraw_timer != -1
     call timer_stop(s:redraw_timer)
   endif
-  " Let Vim draw normally while scrolling. Repair the view once it settles.
-  let s:redraw_timer = timer_start(s:force_redraw ? 10 : 75, function('IpdbDeferredRedraw'))
+  let s:redraw_window = win_getid()
+  " Local updates need only a short debounce. Coalesce full-page repair bursts.
+  let s:redraw_timer = timer_start(winnr('$') > 1 ? 15 : 75, function('IpdbDeferredRedraw'))
 endfunction
+function! IpdbManualRedraw() abort
+  redraw!
+  call s:RememberView()
+  call IpdbQueueClientRefresh()
+endfunction
+nnoremap <silent> <C-l> :<C-u>call IpdbManualRedraw()<CR>
 function! IpdbSearchRedraw() abort
   if index(['/', '?'], getcmdtype()) >= 0
     call IpdbQueueRedraw()
@@ -182,7 +192,7 @@ augroup PortableIpdbRedraw
   autocmd!
   if s:tmux_view
     autocmd CursorMoved,CursorMovedI,TextChanged,TextChangedI,InsertLeave * call IpdbQueueRedraw()
-    autocmd WinEnter,BufWinEnter,VimResized,TabEnter,FocusGained * call IpdbQueueRedraw(1)
+    autocmd BufWinEnter,VimResized * call IpdbQueueRedraw()
     if exists('##CmdlineChanged')
       autocmd CmdlineChanged * call IpdbSearchRedraw()
     endif
@@ -190,7 +200,10 @@ augroup PortableIpdbRedraw
       autocmd CmdlineLeave * call IpdbSearchRedraw()
     endif
   elseif s:windows_console_view
-    autocmd CursorMoved,VimResized,WinEnter,BufWinEnter,TabEnter * call IpdbQueueRedraw()
+    autocmd CursorMoved,VimResized,BufWinEnter * call IpdbQueueRedraw()
+  endif
+  if s:track_viewport
+    autocmd WinEnter,TabEnter * call <SID>PrimeView()
   endif
   if s:track_viewport && exists('##WinScrolled')
     autocmd WinScrolled * call IpdbQueueRedraw()
@@ -260,8 +273,10 @@ function! IpdbSourcePoll(timer) abort
   " Older Vim can change only the viewport without emitting CursorMoved.
   " Also resume a repair deferred while a prompt or the other pane had focus.
   if a:timer != 0 && s:track_viewport && s:redraw_timer == -1
-        \ && (s:force_redraw || s:SourceViewport(winsaveview()) !=# s:screen_viewport)
-    call IpdbQueueRedraw()
+    call s:PrimeView()
+    if s:SourceViewport(winsaveview()) !=# w:ipdb_redraw_viewport
+      call IpdbQueueRedraw()
+    endif
   endif
   if !filereadable($IPDB_VIM_STATE)
     return
@@ -282,7 +297,8 @@ function! IpdbSourcePoll(timer) abort
       return
     endif
     " Window 1 of tab 1 is the top-left source window; other views stay put.
-    if !win_gotoid(win_getid(1, 1))
+    noautocmd let found = win_gotoid(win_getid(1, 1))
+    if !found
       return
     endif
     if expand('%:p') !=# fnamemodify(state.file, ':p')
@@ -326,9 +342,12 @@ function! IpdbSourcePoll(timer) abort
     execute 'sign place 7351 line=' . state.line . ' name=IpdbExecution buffer=' . bufnr('%')
     let g:ipdb_execution_buffer = bufnr('%')
     let g:ipdb_execution_line = state.line
+    call winrestview(winsaveview())
+    call s:RememberView()
     for source_window in getwininfo()
       if source_window.bufnr == g:ipdb_execution_buffer || getwinvar(source_window.winid, 'ipdb_restore_cursorline', 0)
-        if win_gotoid(source_window.winid)
+        noautocmd let found = win_gotoid(source_window.winid)
+        if found
           call IpdbExecutionCursor()
         endif
       endif
@@ -342,13 +361,13 @@ function! IpdbSourcePoll(timer) abort
     echom 'ipdb source sync: ' . v:exception
     echohl None
   finally
-    call win_gotoid(previous)
-    call IpdbSourceRedraw(1)
-    if s:tmux_view
-      call IpdbQueueRedraw(1)
+    noautocmd call win_gotoid(previous)
+    if has('gui_running') || (has('ttyin') && has('ttyout'))
+      redraw
     endif
   endtry
 endfunction
+call s:PrimeView()
 let g:ipdb_source_timer = timer_start(100, function('IpdbSourcePoll'), {'repeat': -1})
 call writefile(['ready'], $IPDB_VIM_READY)
 
@@ -394,7 +413,6 @@ function! IpdbWindowMove(direction) abort
         call timer_stop(s:client_refresh_timer)
         let s:client_refresh_timer = -1
       endif
-      let s:force_redraw = 0
       " Preserve command text already delivered to Vim during the pane switch.
       let keys = []
       let special = {"\<BS>": 'BSpace', "\<Del>": 'DC', "\<Left>": 'Left',
@@ -430,7 +448,6 @@ function! IpdbWindowMove(direction) abort
       endif
       return
     endif
-    call IpdbSourceRedraw(1)
   elseif s:conemu_keys
     let offset = {'h': [-1, 0], 'j': [0, 1], 'k': [0, -1], 'l': [1, 0]}[a:direction]
     call s:RunConEmuCommand(['IPDB_CONEMU_HELPER'], ['-GuiMacro:' . $ConEmuServerPID, 'Split', '2'] + offset)

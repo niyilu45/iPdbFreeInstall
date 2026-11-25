@@ -649,10 +649,10 @@ handled by the terminal for text copying and may bypass application focus; use
 a regular click before typing commands after terminal-side selection.
 
 
-In Windows console Vim and tmux, the bridge repairs the source display once
-scrolling, paging, or a viewport jump settles. Moving the cursor inside the same
-viewport does not trigger a full redraw. gVim uses Vim's normal redraw.
-Ctrl-L remains Vim's manual redraw key.
+In Windows console Vim and tmux, the bridge repairs the changed source view after
+scrolling or paging. Vim splits refresh independently. Switching focus uses
+Vim's normal cursor and status updates. Ctrl-L explicitly repaints the source
+pane, including its Vim splits, or refreshes the active debugger prompt.
 
 
 In system Vim mode, automatic file/line and source listings are shown only in
@@ -669,9 +669,8 @@ is restored when leaving the command loop.
 
 
 When stepping into another function, the Vim source bridge opens folds at the
-execution line and redraws after restoring the selected window. Under tmux it
-also schedules a follow-up repaint. Only the main source window follows the
-step; other source windows remain at their saved positions.
+execution line and updates pending changes after restoring focus. Only the
+main source window follows the step.
 
 
 For system Vim under tmux, the bridge disables terminal line-scroll reuse
@@ -714,12 +713,9 @@ highlighting when it is not already enabled, without resetting the color scheme.
 To leave clean diagnostic mode explicitly, use
 `env IPDB_VIM_CLEAN=0 ./ipdbVim.sh my.py`.
 
-The tmux source view now requests a client repaint after source redraws. Requests
-are delayed/coalesced during navigation and use the resolved tmux executable,
-without changing focus or the source viewport. Idle views do not poll for client
-repaints. This is a compatibility workaround for residue cleared by an explicit
-client refresh; the affected remote environment still needs confirmation.
-Set `IPDB_VIM_CLIENT_REFRESH=0` only to compare behavior without the workaround.
+Ctrl-L in Vim requests a tmux client repaint after Vim redraws. An automatic
+source redraw updates the source pane only. Set
+`IPDB_VIM_CLIENT_REFRESH=0` to omit the client repaint from Ctrl-L.
 
 For a stale screen, run `:IpdbViewDump /tmp/ipdb-view.json` in the affected Vim
 window before paging or redrawing. The local JSON records Vim's cached screen,

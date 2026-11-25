@@ -431,7 +431,8 @@ qa!
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             script = root / 'sample.py'
-            script.write_text('value = 41\nprint("RESULT", value + 1)\n' + '# source row\n' * 120)
+            script.write_text('value = 41\nprint("RESULT", value + 1)\n' +
+                              ''.join('# source row {:03d}\n'.format(row) for row in range(1, 121)))
             master, slave = pty.openpty()
             fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 40, 120, 0, 0))
             launcher = Path(__file__).with_name('ipdbVim.sh').resolve()
@@ -462,28 +463,31 @@ qa!
                 WaitFor(b'ipdb>')
                 output.clear()
                 os.write(master, b'\x17k')
-                time.sleep(0.45)  # Let the focus repaint and client refresh finish.
-                count = len(refresh_log.read_text().splitlines()) if refresh_log.exists() else 0
+                time.sleep(0.25)
+                self.assertFalse(refresh_log.exists(), 'Focusing Vim must not repaint the client')
                 os.write(master, b'j')
                 time.sleep(0.25)
-                self.assertEqual(len(refresh_log.read_text().splitlines()), count,
-                                 'Cursor motion inside the viewport must not request a client repaint')
+                self.assertFalse(refresh_log.exists(), 'Cursor motion must not repaint the client')
                 # Simulate older Vim or dropped events. Ctrl+E can scroll without moving the cursor.
                 os.write(master, b":let &eventignore = exists('##WinScrolled') ? 'CursorMoved,WinScrolled' : 'CursorMoved'\r")
                 time.sleep(0.15)
                 os.write(master, b'\x05')
                 time.sleep(0.4)
-                scrolled = len(refresh_log.read_text().splitlines())
-                self.assertGreater(scrolled, count, 'Viewport scrolling must refresh without cursor or scroll events')
+                self.assertFalse(refresh_log.exists(), 'Automatic scrolling must stay within the source pane')
                 os.write(master, b':set eventignore&\r')
                 time.sleep(0.15)
+                output.clear()
                 os.write(master, b'G')
+                WaitFor(b'source row 120')
                 time.sleep(0.25)
-                self.assertTrue(refresh_log.exists())
-                refreshed = len(refresh_log.read_text().splitlines())
-                self.assertGreater(refreshed, scrolled, 'Viewport jumps must request a client repaint')
+                self.assertFalse(refresh_log.exists(), 'Viewport jumps must not repaint the tmux client')
+                os.write(master, b'\x0c')
+                deadline = time.monotonic() + 3
+                while not refresh_log.exists() and time.monotonic() < deadline:
+                    time.sleep(0.05)
+                self.assertTrue(refresh_log.exists(), 'Ctrl+L must explicitly repaint the tmux client')
                 time.sleep(0.2)
-                self.assertEqual(len(refresh_log.read_text().splitlines()), refreshed, 'Idle sessions must not repaint repeatedly')
+                self.assertEqual(len(refresh_log.read_text().splitlines()), 1, 'Idle sessions must not repaint repeatedly')
                 os.write(master, b'\x17j')
                 time.sleep(0.2)
                 os.write(master, b'n\n')
