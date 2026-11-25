@@ -651,10 +651,12 @@ handled by the terminal for text copying and may bypass application focus; use
 a regular click before typing commands after terminal-side selection.
 
 
-In Windows console Vim and tmux, the bridge repairs the changed source view after
-scrolling or paging. Vim splits refresh independently. Switching focus uses
-Vim's normal cursor and status updates. Ctrl-L explicitly repaints the source
-pane, including its Vim splits, or refreshes the active debugger prompt.
+In Windows console Vim and tmux, the bridge refreshes the affected source view
+after scrolling, searching, or paging. Vim splits refresh independently.
+Switching focus uses Vim's normal cursor and status updates. Ctrl-L explicitly
+repaints the source pane, including its Vim splits, or refreshes the active
+debugger prompt. In the built-in split view, Ctrl-L in the command pane refreshes
+the command area and preserves the current input and visible history.
 In tmux and the built-in split view, a bright cyan border marks focus.
 Both pane contents keep the same colors when focus changes.
 

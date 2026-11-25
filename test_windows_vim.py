@@ -1,4 +1,5 @@
 """Windows launcher argument routing and lifecycle regression tests."""
+import errno
 import json
 import os
 from pathlib import Path
@@ -169,16 +170,78 @@ class WindowsVimTests(unittest.TestCase):
             (root / 'config').write_text(json.dumps(config))
             (root / 'source_pane').write_text(json.dumps({'server': '123', 'draw': '0x25'}))
             (root / 'debug_pane').write_text(json.dumps({'server': '456', 'draw': '0x12'}))
-            for server, action, count, change in (('123', '+', 3, 3), ('456', '+', 5, -5),
-                                                   ('123', '-', 3, -3), ('456', '-', 1, 1), ('123', '=', 1, -5)):
+            cases = (
+                ('123', '+', 3, 33, ['Split(1,0,3)']),
+                ('456', '+', 5, 34, ['Split(1,0,-5)', 'Split(1,0,-1)']),
+                ('123', '-', 3, 29, ['Split(1,0,-3)', 'Split(1,0,-1);Split(1,0,-1)']),
+                ('456', '-', 1, 29, ['Split(1,0,1)']),
+                ('123', '=', 1, 24, ['Split(1,0,-5)', 'Split(1,0,1)']),
+                ('123', '+', 9999, 48, ['Split(1,0,18)', 'Split(1,0,1);Split(1,0,1)']),
+            )
+            for server, action, count, actual, commands in cases:
                 with self.subTest(server=server, action=action), \
                         mock.patch.dict(os.environ, {'IPDB_CONEMU_CONFIG': str(root / 'config'), 'ConEmuServerPID': server}), \
                         mock.patch('windows_vim.PaneBounds', side_effect=[(0, 300), (303, 503)]), \
-                        mock.patch('windows_vim.ConsoleRows', return_value=30), \
+                        mock.patch('windows_vim.ConsoleRows', side_effect=[30, actual]), \
+                        mock.patch.dict(sys.modules, {'msvcrt': mock.Mock()}), \
                         mock.patch('windows_vim.ConEmuMacro') as macro:
                     windows_vim.ResizeConEmu(action, count)
-                    step = 'Split(1,0,{})'.format(1 if change > 0 else -1)
-                    macro.assert_called_once_with(';'.join([step] * abs(change)))
+                    self.assertEqual([mock.call(command) for command in commands], macro.call_args_list)
+
+    def test_conemu_resizes_under_its_session_lock(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config = Path(directory, 'config.json')
+            locked = mock.Mock()
+            locked.locking.side_effect = [OSError(errno.EACCES, 'lock busy'), None]
+            with mock.patch.dict(os.environ, {'IPDB_CONEMU_CONFIG': str(config)}), \
+                    mock.patch.dict(sys.modules, {'msvcrt': locked}), mock.patch('windows_vim.time.sleep'), \
+                    mock.patch('windows_vim.ResizeConEmuPanes') as resize:
+                windows_vim.ResizeConEmu('+', 3)
+            self.assertEqual(2, locked.locking.call_count)
+            self.assertTrue(config.with_suffix('.resize-lock').is_file())
+            resize.assert_called_once_with(config, '+', 3)
+
+    def test_conemu_focus_chord_is_consumed_without_invalidating_prompt(self):
+        import asyncio
+
+        try:
+            import prompt_toolkit
+            from IPython.terminal.debugger import TerminalPdb
+            from ipdb import __main__ as ipdb_main
+        except ImportError:
+            self.skipTest('ConEmu debugger dependencies are required')
+        if not hasattr(asyncio, 'run') or tuple(map(int, prompt_toolkit.__version__.split('.')[:3])) < (3, 0, 28):
+            self.skipTest('A current prompt-toolkit event loop is required')
+
+        from prompt_toolkit.application.current import set_app
+        from prompt_toolkit.input import DummyInput
+        from prompt_toolkit.key_binding.key_processor import KeyPress
+        from prompt_toolkit.keys import Keys
+        from prompt_toolkit.output import DummyOutput
+
+        prompt = prompt_toolkit.PromptSession(input=DummyInput(), output=DummyOutput())
+        debugger = mock.Mock(pt_app=prompt)
+        with mock.patch.object(TerminalPdb, 'pt_init'), mock.patch.object(ipdb_main, '_get_debugger_cls'):
+            windows_vim.InstallConEmuKeys()
+            TerminalPdb.pt_init(debugger)
+
+        async def CheckInput():
+            with set_app(prompt.app), mock.patch.object(prompt.app, 'invalidate') as invalidate, \
+                    mock.patch('windows_vim.ConEmuMacro') as macro:
+                processor = prompt.app.key_processor
+                processor.feed(KeyPress(Keys.ControlW))
+                processor.feed(KeyPress('k'))
+                processor.process_keys()
+                macro.assert_called_once_with('Split(2,0,-1)')
+                self.assertEqual(prompt.default_buffer.text, '')
+                invalidate.assert_not_called()
+
+                processor.feed(KeyPress('x'))
+                processor.process_keys()
+                self.assertEqual(prompt.default_buffer.text, 'x')
+                invalidate.assert_called()
+
+        asyncio.run(CheckInput())
 
     def test_conemu_prefers_a_supported_native_vim_over_msys_vim(self):
         features = b' +timers +eval +signs'

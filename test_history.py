@@ -28,6 +28,20 @@ class HistoryTests(unittest.TestCase):
         self.assertEqual(terminal.cursor.x, history.screen.cursor.x)
         self.assertEqual(terminal.cursor.y, history.screen.cursor.y + 2)
 
+    def test_render_overwrites_old_rows_and_clips_wide_edge(self):
+        history = OutputHistory(6, 2)
+        history.Feed('one \u754c'.encode('utf-8'))
+        terminal = pyte.Screen(6, 4)
+        stream = pyte.Stream(terminal)
+        stream.feed('stays\r\n111111\r\n222222')
+        stream.feed(history.Render(2))
+        self.assertEqual(terminal.display[:3], ['stays ', 'one \u754c', '      '])
+        self.assertEqual(terminal.cursor.x, 6)
+        history.Resize(5, 2)
+        terminal.resize(columns=5)
+        stream.feed(history.Render(2))
+        self.assertEqual(terminal.display[:3], ['stays', 'one  ', '     '])
+
     def test_exit_tail_keeps_error_without_terminal_controls(self):
         history = OutputHistory(80, 3)
         history.Feed(b'first\r\nsecond\r\nTraceback:\r\n\x1b[31mRuntimeError: failed\x1b[0m\r\n')

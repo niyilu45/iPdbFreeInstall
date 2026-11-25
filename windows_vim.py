@@ -1,4 +1,5 @@
 """Native Windows system Vim launchers; no WSL or tmux required."""
+import errno
 import json
 import os
 from pathlib import Path
@@ -233,12 +234,59 @@ def ConfirmConEmuSplit(source_pane):
 
 
 def ConsoleRows():
-    with open('CONOUT$', 'w') as console:
-        return os.get_terminal_size(console.fileno()).lines
+    import ctypes
+    from ctypes import wintypes
+
+    class Coord(ctypes.Structure):
+        _fields_ = [('x', wintypes.SHORT), ('y', wintypes.SHORT)]
+
+    class SmallRect(ctypes.Structure):
+        _fields_ = [(name, wintypes.SHORT) for name in ('left', 'top', 'right', 'bottom')]
+
+    class ConsoleInfo(ctypes.Structure):
+        _fields_ = [('size', Coord), ('cursor', Coord), ('attributes', wintypes.WORD),
+                    ('window', SmallRect), ('max_size', Coord)]
+
+    kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+    kernel.CreateFileW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, wintypes.LPVOID,
+                                  wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE]
+    kernel.CreateFileW.restype = wintypes.HANDLE
+    kernel.GetConsoleScreenBufferInfo.argtypes = [wintypes.HANDLE, ctypes.POINTER(ConsoleInfo)]
+    kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+    # Open the attached screen buffer even when Vim redirects the worker's stdout.
+    handle = kernel.CreateFileW('CONOUT$', 0x80000000, 3, None, 3, 0, None)
+    if handle == wintypes.HANDLE(-1).value:
+        raise ctypes.WinError(ctypes.get_last_error())
+    try:
+        info = ConsoleInfo()
+        if not kernel.GetConsoleScreenBufferInfo(handle, ctypes.byref(info)):
+            raise ctypes.WinError(ctypes.get_last_error())
+        return info.window.bottom - info.window.top + 1
+    finally:
+        kernel.CloseHandle(handle)
 
 
 def ResizeConEmu(action, count):
-    config = json.loads(Path(os.environ['IPDB_CONEMU_CONFIG']).read_text())
+    import msvcrt
+
+    config_path = Path(os.environ['IPDB_CONEMU_CONFIG'])
+    # Vim can start another resize job before the first one measures its move.
+    # Lock one byte per session until both the bulk move and correction finish.
+    with config_path.with_suffix('.resize-lock').open('a+b') as guard:
+        deadline = time.monotonic() + 5
+        while True:
+            try:
+                msvcrt.locking(guard.fileno(), msvcrt.LK_NBLCK, 1)
+                break
+            except OSError as error:
+                if error.errno != errno.EACCES or time.monotonic() >= deadline:
+                    raise
+                time.sleep(0.01)
+        ResizeConEmuPanes(config_path, action, count)
+
+
+def ResizeConEmuPanes(config_path, action, count):
+    config = json.loads(config_path.read_text())
     source, debug = [json.loads(Path(config[name]).read_text(encoding='ascii'))
                      for name in ('source_pane', 'debug_pane')]
     current = os.environ.get('ConEmuServerPID')
@@ -262,10 +310,27 @@ def ResizeConEmu(action, count):
     if not change:
         return
     shrinking_height = lower_height if change > 0 else upper_height
-    steps = min(abs(change), round(shrinking_height * rows / active_height))
-    # ConEmu rounds multi-row moves to the splitter grid and may lose a row.
-    # Single-row moves keep the count exact and respect ConEmu's minimum size.
-    move = 'Split(1,0,{})'.format(1 if change > 0 else -1)
+    shrinking_rows = round(shrinking_height * rows / active_height)
+    steps = min(abs(change), shrinking_rows)
+    if not steps:
+        return
+    direction = 1 if change > 0 else -1
+    # Leave room at the edge where ConEmu would reject a large move that
+    # takes the other pane below its minimum. Finish by single-row steps.
+    bulk = min(steps, max(1, shrinking_rows - 2))
+    ConEmuMacro('Split(1,0,{})'.format(direction * bulk))
+    if steps == 1:
+        return
+
+    # A multi-row move can round to a nearby splitter position. Read the
+    # actual native console rows after ConEmu completes the move.
+    pane_direction = 1 if source_active else -1
+    target = rows + direction * pane_direction * steps
+    remaining = (target - ConsoleRows()) * pane_direction
+    # Single-row corrections preserve the requested count and let ConEmu
+    # enforce its minimum pane size.
+    move = 'Split(1,0,{})'.format(1 if remaining > 0 else -1)
+    steps = abs(remaining)
     for offset in range(0, steps, 100):
         ConEmuMacro(';'.join([move] * min(100, steps - offset)))
 
@@ -334,7 +399,8 @@ def InstallConEmuKeys():
                 action(*args)
             except (OSError, RuntimeError, ValueError, subprocess.TimeoutExpired) as error:
                 event.app.output.write('\r\n[ipdb] {}'.format(error))
-            event.app.invalidate()
+                return False
+            return True
 
         for key in '+-=':
             def Resize(event, operation=key):
@@ -348,7 +414,9 @@ def InstallConEmuKeys():
                       'k': (0, -1, 'up'), 'l': (1, 0, 'right')}
         for key, (dx, dy, arrow) in directions.items():
             def Move(event, x=dx, y=dy):
-                RunAction(event, ConEmuMacro, 'Split(2,{},{})'.format(x, y))
+                if RunAction(event, ConEmuMacro, 'Split(2,{},{})'.format(x, y)):
+                    # The chord is handled and the prompt contents are unchanged.
+                    return NotImplemented
             for suffix in (key, 'c-' + key, arrow):
                 bindings.add('c-w', suffix)(Move)
 

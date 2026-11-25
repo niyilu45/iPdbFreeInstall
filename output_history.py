@@ -1,5 +1,6 @@
 """Preserve the command terminal across layout changes using a VT emulator."""
 import pyte
+from wcwidth import wcswidth
 
 
 class OutputHistory:
@@ -63,21 +64,30 @@ class OutputHistory:
 
     def Render(self, top):
         screen = self.screen
+        last = screen.columns - 1
         output = []
         for index in range(screen.lines):
-            output.append('\x1b[{};1H\x1b[0m\x1b[2K'.format(top + index))
+            output.append('\x1b[{};1H'.format(top + index))
             line = screen.buffer[index]
-            last_style = None
+            last_attrs = None
             for column in range(screen.columns):
                 cell = line.get(column, screen.default_char)
-                style = self.Style(cell)
-                if style != last_style:
-                    output.append(style)
-                    last_style = style
-                output.append(cell.data)
-        output.append('\x1b[0m\x1b[{};{}H'.format(top + screen.cursor.y, min(screen.cursor.x, screen.columns - 1) + 1))
+                attrs = cell[1:]
+                if attrs != last_attrs:
+                    output.append(self.Style(cell))
+                    last_attrs = attrs
+                output.append(' ' if column == last and wcswidth(cell.data) > 1 else cell.data)
+        cursor_row = top + screen.cursor.y
+        output.append('\x1b[0m\x1b[{};{}H'.format(cursor_row, min(screen.cursor.x, last) + 1))
         if screen.cursor.x >= screen.columns:
-            cell = screen.buffer[screen.cursor.y].get(screen.columns - 1, screen.default_char)
-            output.append(self.Style(cell) + cell.data)
+            line = screen.buffer[screen.cursor.y]
+            cell = line.get(last, screen.default_char)
+            text = cell.data if wcswidth(cell.data) == 1 else ' '
+            if not cell.data and last:
+                first = line.get(last - 1, screen.default_char)
+                if wcswidth(first.data) == 2:
+                    output.append('\x1b[{};{}H'.format(cursor_row, last))
+                    cell, text = first, first.data
+            output.append(self.Style(cell) + text)
         output.append(self.Style(screen.cursor.attrs))
         return ''.join(output)

@@ -299,10 +299,10 @@ def Run(arguments, start_split=True):
         y, x, h, w = panes.Layout(max(1, source_height), dimensions[1])[panes.active]
         return panes.views[panes.active], panes.browsers[panes.active], max(1, h - 2), w
 
-    def DrawSource(force=False):
+    def RenderSource(force=False):
         nonlocal source_frame
         if not source_height:
-            return
+            return ''
         frame = {}
         updates = []
         for key, bounds in panes.Layout(source_height, dimensions[1]).items():
@@ -314,17 +314,15 @@ def Run(arguments, start_split=True):
             if not force and bounds == previous_bounds and view == previous_view:
                 frame[key] = source_frame[key]
                 continue
-            rows = SourceBox(view, h, w, color=True) or [' ' * max(0, w - 1)] * h
+            rows = SourceBox(view, h, w, color=True) or ['\x1b[0m' + ' ' * max(0, w - 1)] * h
             frame[key] = (bounds, view, rows)
             if not w:
                 continue
-            gap = ' ' if x + w < dimensions[1] else ''
             for row, text in enumerate(rows):
                 if force or bounds != previous_bounds or text != previous_rows[row]:
-                    updates.append('\x1b[{};{}H'.format(y + row + 1, x + 1) + text + gap)
+                    updates.append('\x1b[{};{}H'.format(y + row + 1, x + 1) + text + ' ')
         source_frame = frame
-        if updates:
-            Write('\x1b7' + ''.join(updates) + '\x1b8')
+        return '\x1b7' + ''.join(updates) + '\x1b8' if updates else ''
 
     def Resize(force=False):
         nonlocal dimensions, source_height
@@ -336,14 +334,15 @@ def Run(arguments, start_split=True):
         rows, columns = new
         source_height = rows // 2 if enabled and not pudb_active and rows >= 10 and columns >= 20 else 0
         split_state[0] = int(source_height > 0)
-        Write('\x1b[?1000h\x1b[?1006h' if source_height else '\x1b[?1000l\x1b[?1006l')
+        mouse = '\x1b[?1000h\x1b[?1006h' if source_height else '\x1b[?1000l\x1b[?1006l'
         lower = max(1, rows - source_height)
-        fcntl.ioctl(master, termios.TIOCSWINSZ, struct.pack('HHHH', lower, columns, 0, 0))
-        Write('\x1b[r\x1b[2J\x1b[{};{}r\x1b[{};1H'.format(source_height + 1, rows, source_height + 1))
-        if not pudb_active:
+        if pudb_active:
+            Write(mouse + '\x1b[r\x1b[2J\x1b[H')
+        else:
             output_history.Resize(columns, lower)
-            Write(output_history.Render(source_height + 1))
-        DrawSource(force=True)
+            margins = '\x1b[r\x1b[{};{}r'.format(source_height + 1, rows)
+            Write(mouse + margins + RenderSource(force=True) + output_history.Render(source_height + 1))
+        fcntl.ioctl(master, termios.TIOCSWINSZ, struct.pack('HHHH', lower, columns, 0, 0))
 
     try:
         tty.setraw(sys.stdin.fileno())
@@ -359,13 +358,14 @@ def Run(arguments, start_split=True):
             if expired:
                 if source_focused:
                     browser.Cancel(snapshot)
-                    DrawSource()
+                    Write(RenderSource())
                 else:
                     os.write(master, expired)
             ready, _, _ = select.select([sys.stdin.fileno(), master, read_fd], [], [], 0.1)
             if read_fd in ready:
                 chunk = os.read(read_fd, 65536)
                 event_buffer += chunk
+                updated = False
                 while b'\n' in event_buffer:
                     packet, event_buffer = event_buffer.split(b'\n', 1)
                     try:
@@ -381,8 +381,10 @@ def Run(arguments, start_split=True):
                         paused = message['ready']
                         continue
                     panes.Update(message, max(1, source_height), dimensions[1])
+                    updated = True
+                if updated:
                     snapshot, browser, pane_height, pane_width = Current()
-                    DrawSource()
+                    Write(RenderSource())
             if master in ready:
                 try:
                     chunk = os.read(master, 65536)
@@ -403,14 +405,15 @@ def Run(arguments, start_split=True):
                     os.write(master, chunk)
                     continue
                 data, toggles, switches = keys.Feed(chunk)
+                redraw = False
                 if keys.focus_toggles % 2 and source_height and paused:
                     source_focused = not source_focused
                     browser.Cancel(snapshot)
                     browser.Clamp(snapshot, pane_height, pane_width)
-                    DrawSource()
+                    redraw = True
                 forwarded = bytearray()
-                redraw = False
-                force_redraw = False
+                refresh_source = False
+                refresh_command = False
                 for kind, value in pane_keys.Feed(data, bool(source_height), source_height):
                     if kind == 'focus':
                         browser.Cancel(snapshot)
@@ -445,16 +448,19 @@ def Run(arguments, start_split=True):
                                 browser.Clamp(snapshot, pane_height, pane_width)
                             redraw = True
                         typed, actions = navigation.Feed(value, bool(source_height and source_focused))
-                        if source_height and source_focused and b'\x0c' in typed:
+                        if b'\x0c' in typed and (paused or source_height and source_focused):
                             typed = typed.replace(b'\x0c', b'')
-                            force_redraw = True
+                            if source_height and source_focused:
+                                refresh_source = True
+                            else:
+                                refresh_command = True
                         forwarded.extend(typed)
                         for action in actions:
                             browser.Move(snapshot, action, pane_height, pane_width)
                         redraw = redraw or bool(actions)
                 data = bytes(forwarded)
                 if redraw:
-                    DrawSource(force=force_redraw)
+                    Write(RenderSource(force=refresh_source))
                 if switches:
                     if paused:
                         data += b'\x15pudb\n'
@@ -464,9 +470,8 @@ def Run(arguments, start_split=True):
                     enabled = not enabled
                     source_focused = False
                     Resize(True)
-                    os.write(master, b'\x0c')
-                if b'\x0c' in data:
-                    Resize(True)
+                elif refresh_command:
+                    Write(output_history.Render(source_height + 1))
                 if data:
                     while data:
                         data = data[os.write(master, data):]

@@ -1,6 +1,18 @@
 " System Vim bridge. Loaded after the user's vimrc and plugins.
+function! s:PublishReady(message) abort
+  let temporary = $IPDB_VIM_READY . '.' . getpid() . '.tmp'
+  try
+    if writefile([a:message], temporary) != 0 || rename(temporary, $IPDB_VIM_READY) != 0
+      throw 'ipdb: could not publish the Vim ready signal'
+    endif
+  finally
+    if filereadable(temporary)
+      call delete(temporary)
+    endif
+  endtry
+endfunction
 if !exists('*timer_start') || !exists('*json_decode') || !exists('*win_getid')
-  call writefile(['System Vim requires timers, JSON and window IDs'], $IPDB_VIM_READY)
+  call s:PublishReady('System Vim requires timers, JSON and window IDs')
   finish
 endif
 " Keep recovery files, but do not share swap files with other editor sessions.
@@ -39,6 +51,7 @@ if s:tmux_view
   endif
 endif
 let s:last = ''
+let s:last_location = []
 highlight default IpdbExecution ctermbg=DarkGrey guibg=#444444
 sign define IpdbExecution text=>> texthl=Search linehl=IpdbExecution
 
@@ -140,13 +153,9 @@ function! IpdbSourceRedraw(force) abort
     let s:redrawing = 1
     try
       if has('gui_running') || (has('ttyin') && has('ttyout'))
-        if winnr('$') == 1 && moved && !a:force
-          redraw!
-        else
-          " Restoring the current view invalidates this window's display cache.
-          call winrestview(winsaveview())
-          redraw
-        endif
+        " Invalidate this window's display cache without blanking the pane.
+        call winrestview(winsaveview())
+        redraw
       endif
       call s:RememberView()
     finally
@@ -174,7 +183,7 @@ function! IpdbQueueRedraw() abort
     call timer_stop(s:redraw_timer)
   endif
   let s:redraw_window = win_getid()
-  " Local updates need only a short debounce. Coalesce full-page repair bursts.
+  " Coalesce rapid paging while keeping changes in a split responsive.
   let s:redraw_timer = timer_start(winnr('$') > 1 ? 15 : 75, function('IpdbDeferredRedraw'))
 endfunction
 function! IpdbManualRedraw() abort
@@ -290,6 +299,7 @@ function! IpdbSourcePoll(timer) abort
     return
   endif
   let previous = win_getid()
+  let repaint = 1
   try
     let state = json_decode(raw)
     if !filereadable(state.file)
@@ -336,6 +346,13 @@ function! IpdbSourcePoll(timer) abort
         let b:ipdb_syntax_ready = exists('b:current_syntax')
       endif
     endif
+    let location = [win_getid(), bufnr('%'), state.line, b:changedtick]
+    if location ==# s:last_location && line('.') == state.line && col('.') == 1
+      " Preserve the user's viewport at an unchanged execution location.
+      let s:last = raw
+      let repaint = 0
+      return
+    endif
     call cursor(state.line, 1)
     normal! zvzz
     silent! sign unplace 7351
@@ -352,6 +369,7 @@ function! IpdbSourcePoll(timer) abort
         endif
       endif
     endfor
+    let s:last_location = location
     let s:last = raw
     let g:ipdb_source_error = ''
   catch
@@ -362,15 +380,11 @@ function! IpdbSourcePoll(timer) abort
     echohl None
   finally
     noautocmd call win_gotoid(previous)
-    if has('gui_running') || (has('ttyin') && has('ttyout'))
+    if repaint && (has('gui_running') || (has('ttyin') && has('ttyout')))
       redraw
     endif
   endtry
 endfunction
-call s:PrimeView()
-let g:ipdb_source_timer = timer_start(100, function('IpdbSourcePoll'), {'repeat': -1})
-call writefile(['ready'], $IPDB_VIM_READY)
-
 " Keep window movement inside Vim until it reaches a terminal pane boundary.
 let s:conemu_keys = !empty($IPDB_CONEMU_HELPER) && $ConEmuServerPID =~# '^[1-9][0-9]*$'
 function! s:RunConEmuCommand(path_names, arguments) abort
@@ -530,3 +544,7 @@ function! IpdbViewDump(path) abort
   echom 'ipdb view diagnostic saved: ' . fnamemodify(output, ':p')
 endfunction
 command! -nargs=? -complete=file IpdbViewDump call IpdbViewDump(<q-args>)
+
+call s:PrimeView()
+let g:ipdb_source_timer = timer_start(100, function('IpdbSourcePoll'), {'repeat': -1})
+call s:PublishReady('ready')

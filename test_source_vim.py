@@ -412,6 +412,16 @@ qa!
                     current = VisibleRows()[0]
                     self.assertGreater((current - previous) * direction, 0, key)
                     previous = current
+                Publish(state, str(source), 100)
+                time.sleep(0.3)
+                centered = VisibleRows()[0]
+                Tmux('send-keys', '-t', 'cells:0.0', 'C-e')
+                time.sleep(0.2)
+                scrolled = VisibleRows()[0]
+                self.assertGreater(scrolled, centered)
+                Publish(state, str(source), 100)
+                time.sleep(0.3)
+                self.assertEqual(VisibleRows()[0], scrolled)
                 Publish(state, str(other), 2)
                 time.sleep(0.3)
                 screen = Tmux('capture-pane', '-p', '-t', 'cells:0.0')
