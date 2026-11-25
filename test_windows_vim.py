@@ -163,6 +163,12 @@ class WindowsVimTests(unittest.TestCase):
             with self.subTest(bounds=bounds), mock.patch('windows_vim.PaneBounds', side_effect=bounds):
                 self.assertEqual(windows_vim.ConEmuSplitVisible(0x25, 0x12), expected)
 
+    def test_conemu_resize_helper_attaches_to_pane_console(self):
+        kernel = mock.Mock()
+        with mock.patch('ctypes.WinDLL', return_value=kernel, create=True):
+            windows_vim.AttachConEmuConsole(123)
+        self.assertEqual(kernel.mock_calls, [mock.call.FreeConsole(), mock.call.AttachConsole(123)])
+
     def test_conemu_resize_uses_current_pane_and_count(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -171,22 +177,23 @@ class WindowsVimTests(unittest.TestCase):
             (root / 'source_pane').write_text(json.dumps({'server': '123', 'draw': '0x25'}))
             (root / 'debug_pane').write_text(json.dumps({'server': '456', 'draw': '0x12'}))
             cases = (
-                ('123', '+', 3, 33, ['Split(1,0,3)']),
-                ('456', '+', 5, 34, ['Split(1,0,-5)', 'Split(1,0,-1)']),
-                ('123', '-', 3, 29, ['Split(1,0,-3)', 'Split(1,0,-1);Split(1,0,-1)']),
-                ('456', '-', 1, 29, ['Split(1,0,1)']),
-                ('123', '=', 1, 24, ['Split(1,0,-5)', 'Split(1,0,1)']),
-                ('123', '+', 9999, 48, ['Split(1,0,18)', 'Split(1,0,1);Split(1,0,1)']),
+                ('123', '+', 3, (0, 330), ['Split(1,0,3)']),
+                ('456', '+', 5, (276, 503), ['Split(1,0,-5)', 'Split(1,0,-1)']),
+                ('123', '-', 3, (0, 290), ['Split(1,0,-3)', 'Split(1,0,-1);Split(1,0,-1)']),
+                ('456', '-', 1, None, ['Split(1,0,1)']),
+                ('123', '=', 1, (0, 240), ['Split(1,0,-5)', 'Split(1,0,1)']),
+                ('123', '+', 9999, (0, 480), ['Split(1,0,18)', 'Split(1,0,1);Split(1,0,1)']),
             )
             for server, action, count, actual, commands in cases:
                 with self.subTest(server=server, action=action), \
                         mock.patch.dict(os.environ, {'IPDB_CONEMU_CONFIG': str(root / 'config'), 'ConEmuServerPID': server}), \
-                        mock.patch('windows_vim.PaneBounds', side_effect=[(0, 300), (303, 503)]), \
-                        mock.patch('windows_vim.ConsoleRows', side_effect=[30, actual]), \
+                        mock.patch('windows_vim.PaneBounds', side_effect=[(0, 300), (303, 503), actual]), \
+                        mock.patch('windows_vim.ConsoleRows', return_value=30) as rows, \
                         mock.patch.dict(sys.modules, {'msvcrt': mock.Mock()}), \
                         mock.patch('windows_vim.ConEmuMacro') as macro:
                     windows_vim.ResizeConEmu(action, count)
                     self.assertEqual([mock.call(command) for command in commands], macro.call_args_list)
+                    rows.assert_called_once_with()
 
     def test_conemu_resizes_under_its_session_lock(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -233,6 +233,19 @@ def ConfirmConEmuSplit(source_pane):
         time.sleep(0.05)
 
 
+def AttachConEmuConsole(server):
+    import ctypes
+    from ctypes import wintypes
+
+    kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+    kernel.AttachConsole.argtypes = [wintypes.DWORD]
+    # Vim's background job can start in its own hidden console. Attach only
+    # this helper to the active pane; the interactive debugger stays attached.
+    kernel.FreeConsole()
+    if not kernel.AttachConsole(server):
+        raise ctypes.WinError(ctypes.get_last_error())
+
+
 def ConsoleRows():
     import ctypes
     from ctypes import wintypes
@@ -292,7 +305,8 @@ def ResizeConEmuPanes(config_path, action, count):
     current = os.environ.get('ConEmuServerPID')
     if current not in (source['server'], debug['server']):
         raise RuntimeError('ConEmu did not identify the active pane')
-    upper, lower = [PaneBounds(int(pane['draw'], 16)) for pane in (source, debug)]
+    source_handle, debug_handle = [int(pane['draw'], 16) for pane in (source, debug)]
+    upper, lower = [PaneBounds(handle) for handle in (source_handle, debug_handle)]
     if not upper or not lower or upper[1] > lower[0]:
         raise RuntimeError('ConEmu panes are not both visible')
     rows = ConsoleRows()
@@ -322,11 +336,16 @@ def ResizeConEmuPanes(config_path, action, count):
     if steps == 1:
         return
 
-    # A multi-row move can round to a nearby splitter position. Read the
-    # actual native console rows after ConEmu completes the move.
+    # A multi-row move can round to a nearby splitter position. ConEmu's pane
+    # rectangle updates with the macro, while CONOUT can still report old rows.
     pane_direction = 1 if source_active else -1
-    target = rows + direction * pane_direction * steps
-    remaining = (target - ConsoleRows()) * pane_direction
+    active_handle = source_handle if source_active else debug_handle
+    resized = PaneBounds(active_handle)
+    if not resized:
+        return
+    resized_height = resized[1] - resized[0]
+    applied = round((resized_height - active_height) * rows / active_height) * pane_direction
+    remaining = direction * steps - applied
     # Single-row corrections preserve the requested count and let ConEmu
     # enforce its minimum pane size.
     move = 'Split(1,0,{})'.format(1 if remaining > 0 else -1)
@@ -534,4 +553,5 @@ if __name__ == '__main__':
     if len(sys.argv) == 3 and sys.argv[1] in ('--vim', '--debug'):
         sys.exit(Worker(sys.argv[1], sys.argv[2]))
     if len(sys.argv) == 4 and sys.argv[1] == '--resize' and sys.argv[2] in ('+', '-', '='):
+        AttachConEmuConsole(int(os.environ['ConEmuServerPID']))
         ResizeConEmu(sys.argv[2], int(sys.argv[3]))
