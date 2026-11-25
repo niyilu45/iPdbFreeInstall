@@ -250,6 +250,9 @@ class FocusTests(unittest.TestCase):
                                  if row.strip().startswith('# source ')), None)
 
                 original = Height('1')
+                self.assertEqual(Call('show-options', '-wv', '-t', 'debug:0', 'window-style'), 'default')
+                self.assertEqual(Call('show-options', '-wv', '-t', 'debug:0', 'window-active-style'), 'default')
+                self.assertEqual(Call('show-options', '-wv', '-t', 'debug:0', 'pane-active-border-style'), 'fg=brightcyan')
                 os.write(master, b'\x175+')
                 Wait(lambda: Height('1') == original + 5 and KeyTable() == 'root', 'fast height increase')
                 os.write(master, b'\x173-')

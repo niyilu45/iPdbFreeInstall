@@ -578,6 +578,8 @@ use an existing ipdb installation or prepare matching Windows dependencies
 with `python prepare.py`. Linux vendor packages are not Windows dependency bundles.
 
 In ConEmu, ipdb opens a tab in the current window with Vim above the debugger.
+ConEmu applies its application-wide Colors → Fade when inactive setting to
+the split panes.
 From Vim, press `Ctrl+W j` to move down to ipdb. From ipdb, press `Ctrl+W k`
 to move back up. The mouse can also select either pane.
 Use `Ctrl+W +` or `Ctrl+W -` to change the current pane's height and
@@ -653,6 +655,8 @@ In Windows console Vim and tmux, the bridge repairs the changed source view afte
 scrolling or paging. Vim splits refresh independently. Switching focus uses
 Vim's normal cursor and status updates. Ctrl-L explicitly repaints the source
 pane, including its Vim splits, or refreshes the active debugger prompt.
+In tmux and the built-in split view, a bright cyan border marks focus.
+Both pane contents keep the same colors when focus changes.
 
 
 In system Vim mode, automatic file/line and source listings are shown only in

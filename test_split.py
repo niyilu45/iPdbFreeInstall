@@ -87,6 +87,18 @@ class SplitTests(unittest.TestCase):
         self.assertIn('>     1 89abcdef', plain[1])
         self.assertEqual([re.sub(r'\x1b\[[0-9;]*m', '', row) for row in colored], plain)
 
+    def test_focus_highlights_only_borders(self):
+        import portable_ipdb
+        snapshot = {'file': 'demo.py', 'line': 1, 'lines': ['value = 41']}
+        inactive = SourceBox(snapshot, 5, 50, color=True)
+        source = SourceBox(dict(snapshot, _source_focus=True), 5, 50, color=True)
+        command = SourceBox(dict(snapshot, _command_border=True), 5, 50, color=True)
+        self.assertIn('38;5;51m', source[0])
+        self.assertIn('38;5;51m', command[-1])
+        self.assertEqual(command[:-1], inactive[:-1])
+        self.assertEqual(source[1:-1], [row.replace('38;5;244m|', '38;5;51m|')
+                                      for row in inactive[1:-1]])
+
     def test_launcher_modes(self):
         self.assertEqual(SelectMode(['sample.py'], 'linux', True, 'xterm'), ('keys', ['sample.py']))
         self.assertEqual(SelectMode(['--tui', 'sample.py'], 'linux', True, 'xterm'), ('tui', ['sample.py']))
@@ -256,6 +268,23 @@ class SplitTests(unittest.TestCase):
                 output.clear()
                 os.write(master, b'n\n')
                 ReadUntil(b'ipdb>')
+                output.clear()
+                os.write(master, b'\x17k:vsplit\n')
+                ReadUntil(b'[VIEW 1]')
+                output.clear()
+                os.write(master, b'\x17h')
+                ReadUntil(b'Focus: SOURCE 2:1')
+                output.clear()
+                os.write(master, b'k')
+                ReadUntil(b'Focus: SOURCE 1:1')
+                self.assertEqual(set(re.findall(rb'\x1b\[\d+;(\d+)H', output)), {b'1'})
+                self.assertNotIn(b'\x1b[2K', output)
+                output.clear()
+                os.write(master, b'\x0c')
+                ReadUntil(b'\x1b[1;51H')
+                output.clear()
+                os.write(master, b'\x17l:q\n')
+                ReadUntil(b'Focus: SOURCE 1:1')
                 output.clear()
                 os.write(master, b'\x17k:vsplit\n:split\n:q\n\x17l:q\n/value\nmaggnN`a\x1b[<65;10;3M\x17jp valuX\x7fe\n')
                 ReadUntil(b'41')

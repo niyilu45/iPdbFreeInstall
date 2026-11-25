@@ -292,6 +292,9 @@ def Run(arguments):
             Tmux('set-option', '-g', 'focus-events', 'on')
             # Show actual focus, not the asynchronously renamed window command.
             Tmux('set-window-option', '-t', 'debug:0', 'automatic-rename', 'off')
+            Tmux('set-window-option', '-t', 'debug:0', 'window-style', 'default')
+            Tmux('set-window-option', '-t', 'debug:0', 'window-active-style', 'default')
+            Tmux('set-window-option', '-t', 'debug:0', 'pane-active-border-style', 'fg=brightcyan')
             Tmux('set-window-option', '-t', 'debug:0', 'window-status-current-format',
                  '#I:#{?#{==:#{pane_id},' + source_id + '},VIM,IPDB}#F')
             mouse_action = 'select-pane -t = ; switch-client -T root ; if-shell -F "#{pane_in_mode}" "send-keys -X cancel" ; send-keys -M'

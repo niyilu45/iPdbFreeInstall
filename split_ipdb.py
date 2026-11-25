@@ -73,9 +73,10 @@ def SourceBox(snapshot, height, width, color=False):
         current = snapshot.get('line', 0)
         offset = snapshot.get('offset', 1)
         start = ViewStart(snapshot, height - 2)
-        border = '\x1b[48;5;0;38;5;244m'
+        active_border = '\x1b[48;5;0;38;5;51m'
+        border = active_border if snapshot.get('_source_focus') else '\x1b[48;5;0;38;5;244m'
         rows[0] = border + rows[0] + RESET
-        rows[-1] = border + rows[-1] + RESET
+        rows[-1] = (active_border if snapshot.get('_command_border') else border) + rows[-1] + RESET
         for index in range(height - 2):
             source_index = start + index
             if source_index < len(lines):
@@ -283,6 +284,7 @@ def Run(arguments, start_split=True):
     pane_keys = PaneKeys()
     dimensions = None
     source_height = 0
+    source_frame = {}
     status = None
     from output_history import OutputHistory
     output_history = OutputHistory(initial_size.columns, initial_size.lines - (initial_size.lines // 2 if split_state[0] else 0))
@@ -297,18 +299,32 @@ def Run(arguments, start_split=True):
         y, x, h, w = panes.Layout(max(1, source_height), dimensions[1])[panes.active]
         return panes.views[panes.active], panes.browsers[panes.active], max(1, h - 2), w
 
-    def DrawSource():
+    def DrawSource(force=False):
+        nonlocal source_frame
         if not source_height:
             return
-        Write('\x1b7')
-        for row in range(1, source_height + 1):
-            Write('\x1b[{};1H\x1b[2K'.format(row))
-        for key, (y, x, h, w) in panes.Layout(source_height, dimensions[1]).items():
-            view = dict(panes.views[key], _source_focus=source_focused and key == panes.active)
+        frame = {}
+        updates = []
+        for key, bounds in panes.Layout(source_height, dimensions[1]).items():
+            y, x, h, w = bounds
+            view = dict(panes.views[key], _source_focus=source_focused and key == panes.active,
+                        _command_border=not source_focused and y + h == source_height)
             view['file'] = ('[MAIN] ' if key == 0 else '[VIEW {}] '.format(key)) + view.get('file', '')
-            for row, text in enumerate(SourceBox(view, h, w, color=True)):
-                Write('\x1b[{};{}H'.format(y + row + 1, x + 1) + text)
-        Write('\x1b8')
+            previous_bounds, previous_view, previous_rows = source_frame.get(key, (None, None, ()))
+            if not force and bounds == previous_bounds and view == previous_view:
+                frame[key] = source_frame[key]
+                continue
+            rows = SourceBox(view, h, w, color=True) or [' ' * max(0, w - 1)] * h
+            frame[key] = (bounds, view, rows)
+            if not w:
+                continue
+            gap = ' ' if x + w < dimensions[1] else ''
+            for row, text in enumerate(rows):
+                if force or bounds != previous_bounds or text != previous_rows[row]:
+                    updates.append('\x1b[{};{}H'.format(y + row + 1, x + 1) + text + gap)
+        source_frame = frame
+        if updates:
+            Write('\x1b7' + ''.join(updates) + '\x1b8')
 
     def Resize(force=False):
         nonlocal dimensions, source_height
@@ -327,7 +343,7 @@ def Run(arguments, start_split=True):
         if not pudb_active:
             output_history.Resize(columns, lower)
             Write(output_history.Render(source_height + 1))
-        DrawSource()
+        DrawSource(force=True)
 
     try:
         tty.setraw(sys.stdin.fileno())
@@ -394,6 +410,7 @@ def Run(arguments, start_split=True):
                     DrawSource()
                 forwarded = bytearray()
                 redraw = False
+                force_redraw = False
                 for kind, value in pane_keys.Feed(data, bool(source_height), source_height):
                     if kind == 'focus':
                         browser.Cancel(snapshot)
@@ -428,13 +445,16 @@ def Run(arguments, start_split=True):
                                 browser.Clamp(snapshot, pane_height, pane_width)
                             redraw = True
                         typed, actions = navigation.Feed(value, bool(source_height and source_focused))
+                        if source_height and source_focused and b'\x0c' in typed:
+                            typed = typed.replace(b'\x0c', b'')
+                            force_redraw = True
                         forwarded.extend(typed)
                         for action in actions:
                             browser.Move(snapshot, action, pane_height, pane_width)
                         redraw = redraw or bool(actions)
                 data = bytes(forwarded)
                 if redraw:
-                    DrawSource()
+                    DrawSource(force=force_redraw)
                 if switches:
                     if paused:
                         data += b'\x15pudb\n'
