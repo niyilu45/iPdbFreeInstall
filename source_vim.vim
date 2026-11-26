@@ -52,8 +52,44 @@ if s:tmux_view
 endif
 let s:last = ''
 let s:last_location = []
+let s:execution_sign = 0
+let s:execution_group = exists('*sign_place') ? ' group=IpdbExecution' : ''
 highlight default IpdbExecution ctermbg=DarkGrey guibg=#444444
 sign define IpdbExecution text=>> texthl=Search linehl=IpdbExecution
+
+function! s:KeepExecutionGutter(buffer) abort
+  for window in getwininfo()
+    if window.bufnr == a:buffer && getwinvar(window.winid, '&signcolumn') ==# 'auto'
+      " Without the last sign, an auxiliary split would shift left two cells.
+      noautocmd call setwinvar(window.winid, '&signcolumn', 'yes')
+      call setwinvar(window.winid, 'ipdb_gutter_buffer', a:buffer)
+    endif
+  endfor
+endfunction
+
+function! s:ReleaseExecutionGutter() abort
+  if exists('w:ipdb_gutter_buffer') && w:ipdb_gutter_buffer != bufnr('%')
+    if &l:signcolumn ==# 'yes'
+      noautocmd setlocal signcolumn=auto
+    endif
+    unlet w:ipdb_gutter_buffer
+  endif
+endfunction
+
+function! s:PlaceExecutionSign(buffer, lnum) abort
+  let previous_buffer = get(g:, 'ipdb_execution_buffer', 0)
+  " Vim can keep another sign with the same ID at a different line.
+  " Add the replacement before removing the old sign to keep the gutter open.
+  let id = s:execution_sign == 7351 ? 7352 : 7351
+  execute 'sign place ' . id . s:execution_group . ' line=' . a:lnum . ' name=IpdbExecution buffer=' . a:buffer
+  if s:execution_sign && bufexists(previous_buffer)
+    if previous_buffer != a:buffer
+      call s:KeepExecutionGutter(previous_buffer)
+    endif
+    execute 'silent! sign unplace ' . s:execution_sign . s:execution_group . ' buffer=' . previous_buffer
+  endif
+  let s:execution_sign = id
+endfunction
 
 function! IpdbExecutionCursor() abort
   let overlap = bufnr('%') == get(g:, 'ipdb_execution_buffer', -1)
@@ -69,6 +105,7 @@ endfunction
 
 augroup IpdbExecutionCursor
   autocmd!
+  autocmd BufWinEnter * call <SID>ReleaseExecutionGutter()
   autocmd CursorMoved,CursorMovedI,BufEnter,WinEnter * call IpdbExecutionCursor()
   autocmd ColorScheme * highlight default IpdbExecution ctermbg=DarkGrey guibg=#444444
 augroup END
@@ -358,19 +395,25 @@ function! IpdbSourcePoll(timer) abort
       endif
     endif
     let location = [win_getid(), bufnr('%'), state.line, b:changedtick]
-    if location ==# s:last_location && line('.') == state.line && col('.') == 1
+    let jump = s:last_location[0:1] !=# location[0:1] || state.line < line('w0')
+          \ || state.line > line('w$') || foldclosed(state.line) != -1
+    let keep_cursor = !jump && !&l:wrap && winsaveview().leftcol > 0
+    if location ==# s:last_location && (keep_cursor || (line('.') == state.line && col('.') == 1))
       " Preserve the user's viewport at an unchanged execution location.
       let s:last = raw
       let repaint = 0
       return
     endif
-    call cursor(state.line, 1)
-    normal! zvzz
-    silent! sign unplace 7351
-    execute 'sign place 7351 line=' . state.line . ' name=IpdbExecution buffer=' . bufnr('%')
+    if !keep_cursor
+      call cursor(state.line, 1)
+    endif
+    if jump
+      normal! zvzz
+      call winrestview(winsaveview())
+    endif
+    call s:PlaceExecutionSign(bufnr('%'), state.line)
     let g:ipdb_execution_buffer = bufnr('%')
     let g:ipdb_execution_line = state.line
-    call winrestview(winsaveview())
     call s:RememberView()
     for source_window in getwininfo()
       if source_window.bufnr == g:ipdb_execution_buffer || getwinvar(source_window.winid, 'ipdb_restore_cursorline', 0)

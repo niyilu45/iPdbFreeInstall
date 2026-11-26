@@ -234,6 +234,51 @@ class FocusTests(unittest.TestCase):
                 os.write(master, b'\n')
                 self.assertEqual(process.wait(timeout=10), 0)
 
+    def test_next_preserves_visible_source_position(self):
+        import re
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            script = root / 'sample.py'
+            script.write_text(''.join('row_{:04d} = {!r}\n'.format(number, '' if number == 42 else 'x' * 200)
+                                      for number in range(1, 100)))
+            with self.LaunchTmux(root, script) as session:
+                master, process, output, _config, Wait, Call = session
+
+                def Active():
+                    return Call('display-message', '-p', '-t', 'debug:0', '#{pane_index}')
+
+                def Source():
+                    return Call('capture-pane', '-p', '-t', 'debug:0.0')
+
+                def View():
+                    match = re.search(r'step-view:(\d+):(\d+)', Source())
+                    return tuple(map(int, match.groups())) if match else None
+
+                os.write(master, b'b 40\nc\n')
+                Wait(lambda: re.search(r'>>\s*row_0040', Source()), 'stopped at the breakpoint')
+                os.write(master, b'\x17k')
+                Wait(lambda: Active() == '0', 'focus source before positioning the viewport')
+                os.write(master, b':set nowrap laststatus=2 statusline=step-view:%{winsaveview().topline}:%{winsaveview().leftcol}\rzt')
+                Wait(lambda: View() == (40, 0), 'position line 40 at the top')
+                os.write(master, b'\x17jn\n')
+                Wait(lambda: re.search(r'>>\s*row_0041', Source()), 'step to line 41')
+                self.assertEqual(View(), (40, 0))
+
+                os.write(master, b'\x17k')
+                Wait(lambda: Active() == '0', 'focus source before horizontal scrolling')
+                os.write(master, b'70zl')
+                Wait(lambda: View() and View()[1] > 0, 'scroll the long line horizontally')
+                scrolled = View()
+                os.write(master, b'\x17jn\n')
+                Wait(lambda: Source().splitlines()[2].startswith('>>'), 'step to the short line')
+                self.assertEqual(View(), scrolled)
+                self.assertEqual(sum(line.startswith('>>') for line in Source().splitlines()), 1)
+                os.write(master, b'q\n')
+                Wait(lambda: b'Press Enter' in output, 'exit prompt')
+                os.write(master, b'\n')
+                self.assertEqual(process.wait(timeout=10), 0)
+
     def test_switch_preserves_queued_command_editing_keys(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

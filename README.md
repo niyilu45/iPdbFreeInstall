@@ -681,7 +681,9 @@ is restored when leaving the command loop.
 
 When stepping into another function, the Vim source bridge opens folds at the
 execution line and updates pending changes after restoring focus. Only the
-main source window follows the step.
+main source window follows the step. A step within the visible source updates
+the execution marker in place and preserves any horizontal scroll. A step to
+hidden source reveals the new location.
 
 
 For system Vim under tmux, the bridge disables terminal line-scroll reuse
