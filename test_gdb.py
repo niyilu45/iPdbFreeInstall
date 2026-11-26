@@ -18,7 +18,7 @@ class CommandTests(unittest.TestCase):
         from checkpoints import Checkpoints
         from unittest import mock
 
-        for platform, message in (('win32', 'ipdbVim.cmd --checkpoint'), ('linux', 'has no checkpoint supervisor')):
+        for platform, message in (('win32', 'unavailable in native Windows Python'), ('linux', 'has no checkpoint supervisor')):
             with self.subTest(platform=platform), mock.patch('checkpoints.sys.platform', platform):
                 with self.assertRaisesRegex(ValueError, message):
                     Checkpoints().Create(None)

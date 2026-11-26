@@ -14,8 +14,8 @@ jobs:
         run: |
           $bundleDirectory = Join-Path $env:RUNNER_TEMP 'ipdb-win32-py312'
           Expand-Archive -LiteralPath 'dist/ipdb-win32-py312.zip' -DestinationPath $env:RUNNER_TEMP
-          Copy-Item -LiteralPath @('test_loader.py', 'test_gdb.py', 'test_completion.py', 'test_reload.py', 'test_speed.py', 'test_windows_vim.py') -Destination $bundleDirectory
+          Copy-Item -LiteralPath @('test_loader.py', 'test_gdb.py', 'test_completion.py', 'test_reload.py', 'test_speed.py', 'test_windows_vim.py', 'test_replay.py') -Destination $bundleDirectory
           & (Join-Path $bundleDirectory 'ipdb.cmd') --check
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           Set-Location -LiteralPath $bundleDirectory
-          python -S -B -m unittest test_loader test_gdb test_completion test_reload test_speed test_windows_vim -v
+          python -S -B -m unittest test_loader test_gdb test_completion test_reload test_speed test_windows_vim test_replay -v

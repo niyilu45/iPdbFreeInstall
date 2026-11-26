@@ -206,27 +206,12 @@ restores process memory and the execution stack at the saved stop. It does
 not merely copy a variables dictionary. A stable supervisor keeps the
 terminal session alive while the active process changes.
 
-From a Windows cmd or PowerShell terminal, start a checkpoint session with:
-
-```bat
-ipdbVim.cmd --checkpoint my.py
-```
-
-If your `ipdb` alias runs `ipdbVim`, use `ipdb --checkpoint my.py`. The option
-starts Linux Python, system Vim, and tmux in the same terminal through the
-default WSL distribution. It keeps the launch directory and converts Windows
-script paths automatically. `ipdb.cmd --plain --checkpoint my.py` uses the
-command prompt without Vim. Use a complete Git checkout, or put the matching
-Linux offline archive under `dist` next to the Windows bundle's launcher.
-Install Linux Python dependencies in WSL if your script needs them.
-
 Limits:
 
 - Linux CLI launch only, with a single Python/native thread and at most
   eight live snapshots. Native worker threads (for example from numerical
   libraries) also cause checkpoint creation to be refused.
-- A native Windows Python session cannot create these process snapshots.
-  Inside WSL, `./ipdbVim.sh script.py` also enables them directly.
+- The process-level `--checkpoint` launch option is available only on Linux.
 - IPython's background history writer is stopped before the first fork;
   persistent IPython history is then disabled for this session.
 - Restoring a checkpoint keeps all checkpoints available. Use restart 1,
@@ -247,6 +232,29 @@ Local tests cover bt/frame numbering, conditional breakpoint execution,
 variable assignment, and command translation. WSL tests also exercise repeated
 checkpoint switching, saved values and execution positions, deletion, and
 terminal exit. These regression tests are included in Linux CI.
+
+## Native Windows replay checkpoints (opt-in)
+
+    ipdbVim.cmd --checkpoint-replay my.py
+    ipdbGvim.cmd --checkpoint-replay my.py
+    ipdb.cmd --checkpoint-replay my.py
+
+Use `checkpoint` at a live line stop in the innermost frame, `info checkpoints`
+to see saved IDs, and `restart 1` to restore checkpoint 1. Each restore reruns
+the script from the beginning in a new Windows Python process. Before taking
+over the terminal, it verifies the source, execution path, and variables at
+the saved stop. If verification fails, the current debugger stays active.
+
+The first `checkpoint` command in each launcher session explains replay.
+Restoring keeps the saved IDs available. `r` reloads the current source and
+resets IDs to 1. The reminder appears again when you start a new ipdb session.
+
+Use replay for deterministic, standalone scripts with built-in Python values.
+Scripts with imports, classes, external I/O, or unsupported values such as
+live iterator variables are refused. The replay prefix suppresses script
+prints. Debugger expressions and breakpoint conditions support read-only
+inspection without function calls. Restoring also restores the breakpoints
+and displays saved with that checkpoint.
 
 ## Automatic expression display
 

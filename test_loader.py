@@ -33,7 +33,10 @@ class LoaderTests(unittest.TestCase):
                 portable_ipdb.Activate()
                 self.assertEqual(sys.path[1:].count(str(base)), 1)
                 sys.path[0] = '/debuggee/directory'
-                for module in ('tmux_resize', 'reload_code', 'windows_vim', 'source_vim', 'source_panes', 'source_browser', 'source_theme', 'completion', 'checkpoints', 'terminal_keys', 'output_history'):
+                for module in ('tmux_resize', 'reload_code', 'windows_vim', 'source_vim', 'source_panes',
+                               'source_browser', 'source_theme', 'completion', 'checkpoints', 'terminal_keys',
+                               'output_history', 'replay_checkpoints', 'replay_debugger_state', 'replay_session',
+                               'replay_state'):
                     spec = PathFinder.find_spec(module, sys.path)
                     self.assertIsNotNone(spec, module)
                     self.assertEqual(Path(spec.origin).parent, base)

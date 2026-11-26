@@ -1,4 +1,5 @@
 """Load the bundled debugger without installing packages."""
+import os
 import sys
 from pathlib import Path
 
@@ -50,18 +51,34 @@ def Activate():
 
 
 if __name__ == '__main__':
-    from launch_mode import CheckpointOption, WslCheckpoint
+    from launch_mode import CheckpointOption
     checkpoint, arguments = CheckpointOption(sys.argv[1:])
+    replay, arguments = CheckpointOption(arguments, '--checkpoint-replay')
+    if checkpoint and sys.platform == 'win32':
+        sys.exit('Process checkpoints are unavailable in native Windows Python. Use --checkpoint-replay for a deterministic script.')
     if checkpoint and arguments[:1] == ['--pudb']:
         sys.exit('The checkpoint launch option requires ipdb, use --plain, --tui, or Vim mode.')
-    if checkpoint and sys.platform == 'win32':
-        try:
-            sys.exit(WslCheckpoint(arguments, Path(__file__).resolve().with_name('ipdb.sh')))
-        except (RuntimeError, OSError) as error:
-            sys.exit(str(error))
+    if replay:
+        if sys.platform != 'win32':
+            sys.exit('The replay checkpoint launch option is for native Windows Python.')
+        if arguments[:1] in (['--pudb'], ['--tui']):
+            sys.exit('Use --checkpoint-replay in plain, system Vim, or gVim mode.')
+        if arguments[:1] in (['--source-vim'], ['--source-gvim'], ['--plain']):
+            script_arguments = arguments[1:]
+        else:
+            script_arguments = arguments
+        if not script_arguments or script_arguments[0].startswith('-'):
+            sys.exit('Usage: ipdbVim.cmd --checkpoint-replay script.py [arguments]')
+        if arguments[:1] not in (['--source-vim'], ['--source-gvim']):
+            from replay_session import SuperviseReplay
+            try:
+                sys.exit(SuperviseReplay(Path(__file__).resolve(), script_arguments))
+            except OSError as error:
+                sys.exit('Could not start native Windows replay: {}'.format(error))
     sys.argv[1:] = arguments
-    print('[ipdb] Starting with Python {}: {}'.format(sys.version.split()[0], sys.executable), file=sys.stderr, flush=True)
-    print('[ipdb] Checking offline dependencies...', file=sys.stderr, flush=True)
+    if not os.environ.get('IPDB_REPLAY_TARGET'):
+        print('[ipdb] Starting with Python {}: {}'.format(sys.version.split()[0], sys.executable), file=sys.stderr, flush=True)
+        print('[ipdb] Checking offline dependencies...', file=sys.stderr, flush=True)
 
 try:
     vendor_path = Activate()
@@ -77,7 +94,7 @@ if __name__ == '__main__' and sys.argv[1:] == ['--check']:
     print('Dependencies: {}'.format(vendor_path))
     print('ipdb: {}'.format(ipdb.__file__))
     sys.exit(0)
-if __name__ == '__main__':
+if __name__ == '__main__' and not os.environ.get('IPDB_REPLAY_TARGET'):
     print('[ipdb] Loading debugger...', file=sys.stderr, flush=True)
 import ipdb.__main__ as ipdb_main
 # Scope the encoding fallback to ipdb's config reader, including embedded set_trace().
@@ -104,7 +121,7 @@ if __name__ == '__main__':
         else:
             from source_vim import Run
         try:
-            sys.exit(Run(arguments))
+            sys.exit(Run(['--checkpoint-replay'] + arguments if replay else arguments))
         except (RuntimeError, OSError) as error:
             sys.exit(str(error))
     if mode == 'pudb':
@@ -118,13 +135,15 @@ if __name__ == '__main__':
             sys.exit(Run(arguments, start_split=(mode == 'tui')))
         except RuntimeError as error:
             sys.exit(str(error))
-    import os
     if os.environ.get('IPDB_VIM_STATE'):
         from source_vim import InstallHook
         InstallHook(os.environ['IPDB_VIM_STATE'])
     if sys.platform == 'win32' and os.environ.get('IPDB_CONEMU_HELPER'):
         from windows_vim import InstallConEmuKeys
         InstallConEmuKeys()
+    if sys.platform == 'win32' and os.environ.get('IPDB_REPLAY_SESSION'):
+        from replay_checkpoints import RunReplayWorker
+        sys.exit(RunReplayWorker(arguments, ipdb_main))
     from ipdb.__main__ import main
     from checkpoints import Supervise
     saved_input = None

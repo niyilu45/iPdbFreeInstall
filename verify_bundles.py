@@ -30,7 +30,7 @@ def Main():
             assert z.getinfo(prefix + 'ipdbGvim.sh').external_attr >> 16 & 0o111
             assert b'\r' not in z.read(prefix + 'source_vim.vim')
             assert z.getinfo(prefix + 'ipdbVim.sh').external_attr >> 16 & 0o111
-            for module in ('source_vim.py', 'source_gvim.py', 'source_vim.vim', 'windows_vim.py', 'plot_events.py', 'function_timing.py', 'ipdb.cmd', 'ipdbVim.cmd', 'ipdbGvim.cmd'):
+            for module in ('source_vim.py', 'source_gvim.py', 'source_vim.vim', 'windows_vim.py', 'plot_events.py', 'function_timing.py', 'replay_checkpoints.py', 'replay_debugger_state.py', 'replay_session.py', 'replay_state.py', 'ipdb.cmd', 'ipdbVim.cmd', 'ipdbGvim.cmd'):
                 assert prefix + module in z.namelist()
             assert z.getinfo(prefix + 'ipdb.sh').external_attr >> 16 & 0o111
             packages = {}
