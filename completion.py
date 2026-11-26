@@ -1,4 +1,4 @@
-"""Context-aware readline completion for portable debugger commands."""
+"""Context-aware completion for portable debugger commands."""
 import builtins
 import inspect
 import re
@@ -17,9 +17,15 @@ def BufferMatches(text):
         for path in files:
             if not isinstance(path, str) or not path.endswith('.py'):
                 continue
-            relative = os.path.relpath(path)
-            candidate = path if os.path.isabs(text) else relative
-            if candidate.startswith(text) or os.path.basename(path).startswith(text):
+            candidate = path
+            if not os.path.isabs(text):
+                try:
+                    candidate = os.path.relpath(path)
+                except ValueError:
+                    pass  # Windows cannot make a path relative across drives.
+            if os.altsep and os.altsep in text and os.sep not in text:
+                candidate = candidate.replace(os.sep, os.altsep)
+            if candidate.startswith(text) or (not os.path.dirname(text) and os.path.basename(path).startswith(text)):
                 matches.append(candidate)
         return sorted(set(matches))
     except (OSError, ValueError, TypeError):
@@ -140,9 +146,14 @@ def Matches(debugger, line, begin, end):
     if command in choices and not argument_before_word:
         return [name for name in choices[command] if name.startswith(text)]
     if command in ('break', 'tbreak', 'clear', 'source') and not re.search(r'\sif\s', before):
-        files = BufferMatches(text)
+        path = before[command_end:].lstrip()
+        path_start = end - len(path)
+        files = BufferMatches(path)
         if files:
-            return files
+            if begin < path_start:
+                return [line[begin:path_start] + candidate for candidate in files]
+            fixed = line[path_start:begin]
+            return [candidate[len(fixed):] for candidate in files if candidate.startswith(fixed)]
         return None  # Retain pdb's filename/line completion where available.
     match = re.search(r'[\w.]+$', before, re.UNICODE)
     prefix = match.group() if match else ''
@@ -153,6 +164,51 @@ def Matches(debugger, line, begin, end):
         return [lead + candidate for candidate in ExpressionMatches(debugger, prefix)]
     trim = begin - prefix_start
     return [candidate[trim:] for candidate in ExpressionMatches(debugger, prefix)]
+
+
+def CommonMatch(text, candidates):
+    common = os.path.commonprefix(candidates)
+    if common != text and (common.startswith(text) or
+                           len(candidates) == 1 and common in BufferMatches(text)):
+        return common
+    return None
+
+
+def InstallPromptCompletion():
+    from IPython.terminal.debugger import TerminalPdb
+    from prompt_toolkit.completion import Completer, Completion
+
+    original_init = TerminalPdb.pt_init
+
+    class FrameCompleter(Completer):
+        def __init__(self, debugger, native):
+            self.debugger = debugger
+            self.native = native
+
+        def get_completions(self, document, complete_event):
+            if not complete_event.completion_requested:
+                return
+            end = document.cursor_position
+            text = document.get_word_before_cursor(WORD=True)
+            begin = end - len(text)
+            candidates = Matches(self.debugger, document.text, begin, end)
+            if candidates is None:
+                if self.native is not None:
+                    yield from self.native.get_completions(document, complete_event)
+                return
+            common = CommonMatch(text, candidates)
+            if common is not None:
+                yield Completion(common, start_position=-len(text))
+
+    def Init(self, *args, **kwargs):
+        original_init(self, *args, **kwargs)
+        session = getattr(self, 'pt_app', None)
+        if session is not None:
+            # IPython still updates its original completer with the selected frame.
+            session.completer = FrameCompleter(self, session.completer)
+            session.complete_while_typing = False
+
+    TerminalPdb.pt_init = Init
 
 
 def InstallCompletion(debugger_class):
@@ -169,10 +225,8 @@ def InstallCompletion(debugger_class):
                 else:
                     # Expose only the unambiguous extension. Readline must never
                     # receive the underlying variable list, even on repeated Tab.
-                    common = os.path.commonprefix(candidates)
-                    self._portable_matches = [common] if common.startswith(text) and len(common) > len(text) else []
-                    if len(candidates) == 1 and candidates[0] in BufferMatches(text) and common != text:
-                        self._portable_matches = [common]
+                    common = CommonMatch(text, candidates)
+                    self._portable_matches = [common] if common is not None else []
             except Exception:
                 self._portable_matches = []
         candidates = getattr(self, '_portable_matches', None)
@@ -189,3 +243,4 @@ def InstallCompletion(debugger_class):
 
     debugger_class.complete = Complete
     debugger_class.cmdloop = CommandLoop
+    InstallPromptCompletion()

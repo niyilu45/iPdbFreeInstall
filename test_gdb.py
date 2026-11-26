@@ -14,6 +14,15 @@ from IPython.core.debugger import Pdb
 
 
 class CommandTests(unittest.TestCase):
+    def test_checkpoint_error_identifies_platform_or_launcher(self):
+        from checkpoints import Checkpoints
+        from unittest import mock
+
+        for platform, message in (('win32', 'In WSL, run'), ('linux', 'has no checkpoint supervisor')):
+            with self.subTest(platform=platform), mock.patch('checkpoints.sys.platform', platform):
+                with self.assertRaisesRegex(ValueError, message):
+                    Checkpoints().Create(None)
+
     def test_partial_range_deletion(self):
         from unittest import mock
         from checkpoints import Manager

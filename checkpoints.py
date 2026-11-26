@@ -62,8 +62,12 @@ class Checkpoints:
             self.Write({'entries': {}, 'next_id': 1})
 
     def Create(self, debugger):
-        if not sys.platform.startswith('linux') or not self.supervised:
-            raise ValueError('Checkpoints require the Linux CLI launcher')
+        if sys.platform == 'win32':
+            raise ValueError('Checkpoints require Linux process snapshots. In WSL, run ./ipdbVim.sh with Linux Python.')
+        if not sys.platform.startswith('linux'):
+            raise ValueError('Checkpoints require Linux process snapshots. Run the debugger on Linux.')
+        if not self.supervised:
+            raise ValueError('This session has no checkpoint supervisor. Launch the script with ./ipdb.sh or ./ipdbVim.sh.')
         if len(self.entries) >= 8:
             raise ValueError('At most 8 live checkpoints; delete one first')
         if threading.current_thread() is not threading.main_thread():

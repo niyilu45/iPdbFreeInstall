@@ -106,6 +106,36 @@ class CompletionTests(unittest.TestCase):
         self.assertEqual(ExpressionMatches(self.debugger, 'obj.expl'), ['obj.explosive'])
         self.assertEqual(ExpressionMatches(self.debugger, 'obj.explosive.value'), [])
 
+    def test_terminal_prompt_uses_portable_completion(self):
+        import io
+        import portable_ipdb
+        from IPython.terminal.debugger import TerminalPdb
+        from prompt_toolkit.completion import CompleteEvent, Completion
+        from prompt_toolkit.document import Document
+        from unittest import mock
+
+        native = mock.Mock()
+        native.get_completions.return_value = [Completion('sample.py', start_position=-3)]
+        session = SimpleNamespace(completer=native, complete_while_typing=True)
+        with mock.patch('IPython.terminal.debugger.PromptSession', return_value=session), \
+                mock.patch('IPython.terminal.debugger._use_simple_prompt', False, create=True):
+            debugger = TerminalPdb(stdout=io.StringIO())
+        loop = getattr(debugger, 'pt_loop', None)
+        if loop is not None:
+            self.addCleanup(loop.close)
+        debugger.curframe = SimpleNamespace(f_globals={}, f_locals={
+            'signal_count': 1, 'signal_config': 2, 'signal_status': 3, 'config': {'signal_name': 4}})
+        event = CompleteEvent(completion_requested=True)
+        for line, expected in (
+                ('p sig', ['p signal_']), ('p signal_', []), ('p signal_c', ['p signal_co']),
+                ('p signal_cou', ['p signal_count']), ('i dis', ['i display']),
+                ('p config["signal_n', ['p config["signal_name']), ('b sam', ['b sample.py'])):
+            with self.subTest(line=line):
+                results = session.completer.get_completions(Document(line), event)
+                self.assertEqual([line[:len(line) + item.start_position] + item.text for item in results], expected)
+        self.assertFalse(session.complete_while_typing)
+        self.assertEqual(list(session.completer.get_completions(Document('p sig'), CompleteEvent(text_inserted=True))), [])
+
     def test_missing_frame_and_native_filename_completion(self):
         self.assertEqual(Matches(SimpleNamespace(), 'chec', 0, 4), ['checkpoint'])
         self.assertIsNone(self.Complete('break sample'))
@@ -126,8 +156,18 @@ class BufferCompletionTests(unittest.TestCase):
             with mock.patch.dict(os.environ, {'IPDB_VIM_STATE': state}):
                 self.assertEqual(BufferMatches('help'), [os.path.relpath(path)])
                 self.assertEqual(BufferMatches('notes'), [])
+                with mock.patch('completion.os.path.relpath', side_effect=ValueError('different drive')):
+                    self.assertEqual(BufferMatches('help'), [path])
                 Path(state + '.buffers').write_text('invalid')
                 self.assertEqual(BufferMatches('help'), [])
+
+    def test_filename_completion_preserves_existing_directory(self):
+        from unittest import mock
+
+        line = 'b pkg/he'
+        with mock.patch('completion.BufferMatches', return_value=['pkg/helper.py']) as match:
+            self.assertEqual(Matches(SimpleNamespace(), line, 6, len(line)), ['helper.py'])
+            match.assert_called_once_with('pkg/he')
 
 
 if __name__ == '__main__':

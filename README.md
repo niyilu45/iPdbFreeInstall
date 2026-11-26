@@ -211,6 +211,9 @@ Limits:
 - Linux CLI launch only, with a single Python/native thread and at most
   eight live snapshots. Native worker threads (for example from numerical
   libraries) also cause checkpoint creation to be refused.
+- On Windows, open a WSL terminal and run `./ipdbVim.sh script.py` with Linux
+  Python. In ConEmu, use a WSL terminal tab for this command. A native Windows
+  Python session cannot create these process snapshots.
 - IPython's background history writer is stopped before the first fork;
   persistent IPython history is then disabled for this session.
 - Restoring a checkpoint keeps all checkpoints available. Use restart 1,
@@ -401,7 +404,7 @@ execution on a native Linux test environment.
 
 ## Tab completion
 
-The readline input used by the Linux shortcut/split launcher now completes:
+The readline and prompt-toolkit debugger prompts complete:
 
 - Command names and aliases: chec<Tab> -> checkpoint, disp<Tab> -> display.
 - GDB subcommands: i dis<Tab> -> i display, dis disp<Tab> -> dis display.
@@ -409,19 +412,18 @@ The readline input used by the Linux shortcut/split launcher now completes:
 - Object attributes: disp sample_values.ap<Tab> -> disp sample_values.append.
 - Expressions in condition, display, print, set-variable, and break-if commands.
 
-Press Tab to extend a unique match or display ambiguous candidates. Candidate
-names use the selected frame, so frame changes affect variable completion.
+Press Tab to extend to the longest common prefix. The debugger uses names from
+the selected frame. If further input is needed, type more characters before
+pressing Tab again.
 Existing pdb filename completion is retained for break/source where available.
 Attribute traversal does not evaluate properties; custom __dir__ methods may
 still be called to enumerate attribute names. Internal adapter commands and
 the disabled down command are excluded from suggestions.
 
 Tab is forwarded to readline even while arrow keys are browsing source.
-PuDB retains its own completion behavior. Interactive Linux --plain and
-split modes now use the same readline debugger and completion adapter.
-
-Local completion tests pass. A Tab-completed variable command was also added
-to the Linux PTY test, which still requires native Linux execution.
+PuDB retains its own completion behavior. Interactive Linux plain and split
+modes use readline, and the Windows prompt uses prompt-toolkit. Both apply
+the same frame-aware completion rules.
 
 
 ## Consistent input across layouts
