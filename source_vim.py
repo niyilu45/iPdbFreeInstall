@@ -266,7 +266,7 @@ def Run(arguments):
         print('[ipdb] Diagnostic mode: user vimrc and plugins disabled for this session.', flush=True)
         print('[ipdb] To restore your configuration, launch with IPDB_VIM_CLEAN=0.', flush=True)
     else:
-        print('[ipdb] Starting system Vim with your vimrc and plugins; Ctrl-B then k/j switches Vim/ipdb.', flush=True)
+        print('[ipdb] Starting system Vim with your vimrc and plugins; Ctrl-W followed by h/j/k/l switches panes.', flush=True)
     with tempfile.TemporaryDirectory(prefix='ipdb-vim-') as directory:
         root = Path(directory)
         environment['IPDB_TMUX_BIN'] = tmux
@@ -300,6 +300,11 @@ def Run(arguments):
             mouse_action = 'select-pane -t = ; switch-client -T root ; if-shell -F "#{pane_in_mode}" "send-keys -X cancel" ; send-keys -M'
             for table in ('root', 'ipdb-nav', 'copy-mode', 'copy-mode-vi'):
                 Tmux('bind-key', '-T', table, 'MouseDown1Pane', mouse_action)
+            # Ctrl-B is Vim's page-up key. Keep the tmux prefix on the command pane.
+            Tmux('set-option', '-t', 'debug', 'prefix', 'None')
+            Tmux('bind-key', '-n', 'C-b', 'if-shell', '-F', '#{==:#{pane_id},' + source_id + '}',
+                 'send-keys C-b', 'switch-client -T prefix')
+            Tmux('bind-key', '-T', 'prefix', 'C-b', 'send-keys C-b')
             Tmux('bind-key', 'k', 'select-pane', '-U')
             Tmux('bind-key', 'j', 'select-pane', '-D')
             def ResizeCommand(key):

@@ -201,6 +201,39 @@ class FocusTests(unittest.TestCase):
                 owner.terminate()
                 owner.wait(timeout=10)
 
+    def test_ctrl_b_pages_vim_and_preserves_debugger_prefix(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            script = root / 'sample.py'
+            script.write_text(''.join('row_{0:04d} = {0}\n'.format(number) for number in range(1, 130)))
+            with self.LaunchTmux(root, script) as session:
+                master, process, output, _config, Wait, Call = session
+
+                def Active():
+                    return Call('display-message', '-p', '-t', 'debug:0', '#{pane_index}')
+
+                def Source():
+                    return Call('capture-pane', '-p', '-t', 'debug:0.0')
+
+                os.write(master, b'!print(73192)\x02\x023\n')
+                Wait(lambda: '731923' in Call('capture-pane', '-p', '-t', 'debug:0.1').splitlines(),
+                     'double Ctrl+B still moves the command cursor back')
+                os.write(master, b'\x02k')
+                Wait(lambda: Active() == '0' and 'row_0001' in Source(),
+                     'Ctrl+B k switches from the prompt to Vim')
+                os.write(master, b'\x06\x06')
+                Wait(lambda: 'row_0040' in Source() and 'row_0001' not in Source(), 'page down in Vim')
+                os.write(master, b'\x02')
+                Wait(lambda: 'row_0020' in Source() and 'row_0040' not in Source(),
+                     'Ctrl+B reaches Vim as page up')
+                os.write(master, b'\x02\x1b[5~')
+                Wait(lambda: 'row_0001' in Source(), 'rapid Ctrl+B and PageUp show the first page')
+                self.assertEqual(Call('display-message', '-p', '-t', 'debug:0.0', '#{pane_in_mode}'), '0')
+                os.write(master, b'\x17jq\n')
+                Wait(lambda: b'Press Enter' in output, 'exit prompt')
+                os.write(master, b'\n')
+                self.assertEqual(process.wait(timeout=10), 0)
+
     def test_switch_preserves_queued_command_editing_keys(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

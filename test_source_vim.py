@@ -365,6 +365,71 @@ qa!
             self.assertEqual((root / 'errors').read_text(), '')
 
     @unittest.skipUnless(sys.platform.startswith('linux') and shutil.which('vim') and shutil.which('tmux'), 'Linux Vim/tmux required')
+    def test_paging_repaints_missing_terminal_rows(self):
+        import time
+        import uuid
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / 'rows.py'
+            row = 'same_source_text = "unchanged across pages"'
+            source.write_text((row + '\n') * 200)
+            state = root / 'state'
+            Publish(state, str(source), 1)
+            command = ['tmux', '-L', 'ipdb-missing-rows-' + uuid.uuid4().hex, '-f', '/dev/null']
+            env = dict(os.environ, TERM='xterm-256color', HOME=directory, IPDB_TMUX_SOCKET=command[2],
+                       IPDB_VIM_STATE=str(state), IPDB_VIM_READY=str(root / 'ready'))
+
+            def Tmux(*args):
+                return subprocess.check_output(command + list(args), env=env, universal_newlines=True)
+
+            def SourceRows():
+                return Tmux('capture-pane', '-p', '-t', 'page:0.0').splitlines()
+
+            def Ex(statement):
+                Tmux('send-keys', '-t', 'page:0.0', '-l', ':' + statement)
+                Tmux('send-keys', '-t', 'page:0.0', 'Enter')
+
+            try:
+                Vim = Shell(['vim', '-N', '-u', 'NONE', '-i', 'NONE', '-n', '-S', Path(__file__).with_name('source_vim.vim').resolve()])
+                Tmux('new-session', '-d', '-s', 'page', '-x', '90', '-y', '24', Vim)
+                Tmux('split-window', '-v', '-t', 'page:0.0', str(shutil.which('cat')))
+                tty = Tmux('display-message', '-p', '-t', 'page:0.0', '#{pane_tty}').strip()
+                deadline = time.monotonic() + 5
+                while row not in SourceRows()[2] and time.monotonic() < deadline:
+                    time.sleep(0.05)
+                self.assertIn(row, SourceRows()[2])
+                # Control when the deferred repair runs, after ordinary drawing.
+                Ex('set eventignore=all | call timer_stop(g:ipdb_source_timer)')
+                time.sleep(0.2)
+
+                scrolled = root / 'scrolled'
+                scrolled_path = str(scrolled).replace("'", "''")
+                previous_top = 1
+                for key in ('C-f', 'C-d', 'C-e', 'C-u', 'C-b'):
+                    Ex('execute "normal! \\<{}>" | redraw | call writefile([string(line(\'w0\'))], \'{}\')'.format(
+                        key, scrolled_path))
+                    deadline = time.monotonic() + 2
+                    while not scrolled.exists() and time.monotonic() < deadline:
+                        time.sleep(0.05)
+                    self.assertTrue(scrolled.exists(), key)
+                    top = int(scrolled.read_text())
+                    self.assertNotEqual(top, previous_top, key)
+                    previous_top = top
+                    scrolled.unlink()
+                    # Erase a row in tmux while Vim still believes it is drawn.
+                    with open(tty, 'wb', buffering=0) as terminal:
+                        terminal.write(b'\x1b7\x1b[3;1H\x1b[2K\x1b8')
+                    self.assertEqual(SourceRows()[2], '')
+                    Ex('call timer_start(20, {timer -> IpdbSourceRedraw(0)})')
+                    deadline = time.monotonic() + 2
+                    while row not in SourceRows()[2] and time.monotonic() < deadline:
+                        time.sleep(0.05)
+                    self.assertIn(row, SourceRows()[2], key)
+            finally:
+                subprocess.run(command + ['kill-server'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+    @unittest.skipUnless(sys.platform.startswith('linux') and shutil.which('vim') and shutil.which('tmux'), 'Linux Vim/tmux required')
     def test_tmux_source_cells_after_jump_and_file_change(self):
         import time
         import uuid

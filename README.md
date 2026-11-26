@@ -545,8 +545,8 @@ your Vim build and each plugin's dependencies. No user configuration is rewritte
 Vim startup is checked before starting the debuggee and reports a timeout/error
 instead of silently opening a broken session.
 
-The upper tmux pane is Vim; the lower pane is ipdb. Press Ctrl-B, release it,
-then k/j to move between these panes. Inside Vim, use native Ctrl-W navigation,
+The upper tmux pane is Vim; the lower pane is ipdb. Press Ctrl-W, then k/j to
+move between these panes. Inside Vim, use native Ctrl-W navigation,
 :split, :vsplit, :q, searches, marks and plugins. Only the top-left window of
 the first Vim tab follows debugger stops. Other windows retain their views.
 The bridge places an execution sign without writing source files, and preserves
@@ -607,8 +607,9 @@ console integration tests by setting IPDB_TEST_WINDOWS_CONSOLE=1.
 
 In system Vim/tmux mode, Ctrl-W followed by h/j/k/l now navigates between
 source and debugger panes. Inside Vim, the same keys first move between Vim
-windows; at an edge they move to the neighboring tmux pane. Ctrl-B k/j still
-works. In the debugger pane Ctrl-W Ctrl-W sends the original Ctrl-W character
+windows; at an edge they move to the neighboring tmux pane. Ctrl-B pages up in
+Vim and remains the tmux prefix in the debugger pane. In the debugger pane
+Ctrl-W Ctrl-W sends the original Ctrl-W character
 (backward word deletion). These tmux mappings are session-local and do not
 change user configuration. Windows Terminal uses its own pane keys.
 Holding Ctrl while pressing h/j/k/l also works. The tmux status bar shows
@@ -686,6 +687,9 @@ The view signature includes buffer identity, edits, horizontal and wrapped-line
 offsets, and visible folds. Cursor events also detect scrolling in older Vim
 versions without a dedicated scroll event. A viewport check also covers
 scrolling that leaves the cursor stationary and changes with no window event.
+After the source viewport moves, console Vim resends its source cells without
+clearing the terminal first. This restores rows that the terminal lost while
+Vim's display cache still held the expected text.
 Regression scenarios include counted G, gg, searches, marks, page movement,
 horizontal scrolling, folds, edits and split-window navigation. This does not
 constitute validation of every terminal/Vim/plugin combination. If artifacts

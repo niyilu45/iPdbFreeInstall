@@ -147,15 +147,26 @@ function! IpdbSourceRedraw(force) abort
     return 0
   endif
   call s:PrimeView()
-  let moved = s:track_viewport && s:SourceViewport(winsaveview()) !=# w:ipdb_redraw_viewport
+  let viewport = s:SourceViewport(winsaveview())
+  let moved = s:track_viewport && viewport !=# w:ipdb_redraw_viewport
   let layout = s:tmux_view ? IpdbViewSignature() : ''
   if a:force || moved || (s:tmux_view && layout !=# w:ipdb_redraw_layout)
     let s:redrawing = 1
     try
       if has('gui_running') || (has('ttyin') && has('ttyout'))
-        " Invalidate this window's display cache without blanking the pane.
-        call winrestview(winsaveview())
-        redraw
+        if moved && viewport[1:5] !=# w:ipdb_redraw_viewport[1:5] && exists('&t_cl')
+          " Discard Vim's cell cache without sending the terminal's clear command.
+          let clear_screen = &t_cl
+          try
+            noautocmd let &t_cl = ''
+            redraw!
+          finally
+            noautocmd let &t_cl = clear_screen
+          endtry
+        else
+          call winrestview(winsaveview())
+          redraw
+        endif
       endif
       call s:RememberView()
     finally
