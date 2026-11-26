@@ -1,4 +1,5 @@
 """Native Windows system Vim launchers; no WSL or tmux required."""
+from contextlib import ExitStack
 import errno
 import json
 import os
@@ -59,14 +60,19 @@ def Debug(config):
             environment_file.unlink()
             ConfirmConEmuSplit(config['source_pane'])
         WaitReady(config)
-        debugger = subprocess.Popen(config['debugger'], env=Environment(config, origin), cwd=config['cwd'])
-        if 'debugger_pid' in config:
-            try:
-                WriteMarker(config['debugger_pid'], str(debugger.pid))
-            except OSError as error:
-                # The debugger is already running. Keep waiting for it.
-                print('[ipdb] Could not record the debugger process: {}'.format(error), flush=True)
-        code = WaitForDebugger(debugger)
+        with ExitStack() as session:
+            environment = Environment(config, origin)
+            if origin is not None:
+                from conemu_keys import RuntimeNavigation
+                session.enter_context(RuntimeNavigation(environment, ConEmuMacro))
+            debugger = subprocess.Popen(config['debugger'], env=environment, cwd=config['cwd'])
+            if 'debugger_pid' in config:
+                try:
+                    WriteMarker(config['debugger_pid'], str(debugger.pid))
+                except OSError as error:
+                    # The debugger is already running. Keep waiting for it.
+                    print('[ipdb] Could not record the debugger process: {}'.format(error), flush=True)
+            code = WaitForDebugger(debugger)
     except (OSError, RuntimeError, ValueError, subprocess.TimeoutExpired) as error:
         print('[ipdb] ' + str(error), flush=True)
     finally:
@@ -453,6 +459,9 @@ def InstallConEmuKeys():
 
     TerminalPdb.pt_init = Init
     ipdb_main._get_debugger_cls = DebuggerClass
+    from conemu_keys import InstallPromptTracking, PROMPT_EVENT
+    if os.environ.get(PROMPT_EVENT):
+        InstallPromptTracking(TerminalPdb, os.environ[PROMPT_EVENT])
 
 
 def IsRunning(pid):

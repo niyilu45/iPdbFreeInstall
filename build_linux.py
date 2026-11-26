@@ -88,7 +88,7 @@ def Build(version, platform='linux', index_url='https://pypi.org/simple/'):
                             target.write_bytes(z.read(info))
                     continue
                 z.extract(info, vendor)
-    for filename in ('portable_ipdb.py', 'bundle_loader.py', 'launch_mode.py', 'source_theme.py', 'source_browser.py', 'source_panes.py', 'source_vim.py', 'source_gvim.py', 'tmux_resize.py', 'windows_vim.py', 'source_vim.vim', 'terminal_keys.py', 'debugger_speed.py', 'reload_code.py', 'function_timing.py', 'plot_events.py', 'output_history.py', 'split_ipdb.py', 'gdb_commands.py', 'completion.py', 'checkpoints.py', 'replay_checkpoints.py', 'replay_debugger_state.py', 'replay_session.py', 'replay_state.py', 'ipdb.sh', 'ipdb.cmd', 'ipdbVim.sh', 'ipdbVim.cmd', 'ipdbGvim.sh', 'ipdbGvim.cmd', 'README.md'):
+    for filename in ('portable_ipdb.py', 'bundle_loader.py', 'launch_mode.py', 'source_theme.py', 'source_browser.py', 'source_panes.py', 'source_vim.py', 'source_gvim.py', 'tmux_resize.py', 'windows_vim.py', 'conemu_keys.py', 'source_vim.vim', 'terminal_keys.py', 'debugger_speed.py', 'reload_code.py', 'function_timing.py', 'plot_events.py', 'output_history.py', 'split_ipdb.py', 'gdb_commands.py', 'completion.py', 'checkpoints.py', 'replay_checkpoints.py', 'replay_debugger_state.py', 'replay_session.py', 'replay_state.py', 'ipdb.sh', 'ipdb.cmd', 'ipdbVim.sh', 'ipdbVim.cmd', 'ipdbGvim.sh', 'ipdbGvim.cmd', 'README.md'):
         data = (ROOT / filename).read_bytes()
         if filename.endswith(('.sh', '.vim')):
             data = data.replace(b'\r\n', b'\n')

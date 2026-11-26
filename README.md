@@ -604,7 +604,8 @@ In ConEmu, ipdb opens a tab in the current window with Vim above the debugger.
 ConEmu applies its application-wide Colors → Fade when inactive setting to
 the split panes.
 From Vim, press `Ctrl+W j` to move down to ipdb. From ipdb, press `Ctrl+W k`
-to move back up. The mouse can also select either pane.
+to move back up, including while the debugged program is running. `Ctrl+W`
+followed by an arrow key also switches panes. The mouse can select either pane.
 Use `Ctrl+W +` or `Ctrl+W -` to change the current pane's height and
 `Ctrl+W =` to make the panes equal. For a count, use `5 Ctrl+W +` in Vim
 or `Ctrl+W 5 +` at the debugger prompt. The debugger pane keeps its own

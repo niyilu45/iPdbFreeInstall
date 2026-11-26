@@ -9,7 +9,7 @@ def Main():
                 if archive.name.startswith(('ipdb-linux-', 'ipdb-win32-'))]
     for archive in archives:
         prefix = archive.stem + '/'
-        replacement = {prefix + name: (root / name).read_bytes() for name in ('portable_ipdb.py', 'bundle_loader.py', 'launch_mode.py', 'source_theme.py', 'source_browser.py', 'source_panes.py', 'source_vim.py', 'source_gvim.py', 'tmux_resize.py', 'windows_vim.py', 'source_vim.vim', 'terminal_keys.py', 'debugger_speed.py', 'reload_code.py', 'function_timing.py', 'plot_events.py', 'output_history.py', 'split_ipdb.py', 'gdb_commands.py', 'completion.py', 'checkpoints.py', 'replay_checkpoints.py', 'replay_debugger_state.py', 'replay_session.py', 'replay_state.py', 'ipdb.sh', 'ipdb.cmd', 'ipdbVim.sh', 'ipdbVim.cmd', 'ipdbGvim.sh', 'ipdbGvim.cmd', 'README.md')}
+        replacement = {prefix + name: (root / name).read_bytes() for name in ('portable_ipdb.py', 'bundle_loader.py', 'launch_mode.py', 'source_theme.py', 'source_browser.py', 'source_panes.py', 'source_vim.py', 'source_gvim.py', 'tmux_resize.py', 'windows_vim.py', 'conemu_keys.py', 'source_vim.vim', 'terminal_keys.py', 'debugger_speed.py', 'reload_code.py', 'function_timing.py', 'plot_events.py', 'output_history.py', 'split_ipdb.py', 'gdb_commands.py', 'completion.py', 'checkpoints.py', 'replay_checkpoints.py', 'replay_debugger_state.py', 'replay_session.py', 'replay_state.py', 'ipdb.sh', 'ipdb.cmd', 'ipdbVim.sh', 'ipdbVim.cmd', 'ipdbGvim.sh', 'ipdbGvim.cmd', 'README.md')}
         temporary = archive.with_suffix('.tmp')
         replacement = {name: data.replace(b'\r\n', b'\n') if name.endswith(('.sh', '.vim')) else data
                        for name, data in replacement.items()}

@@ -66,6 +66,42 @@ class WindowsVimTests(unittest.TestCase):
             self.assertIsNone(windows_vim.IsRunning(123))
             self.assertIs(windows_vim.IsRunning(123), False)
 
+    def test_conemu_runtime_navigation_surrounds_debugger_child(self):
+        from contextlib import contextmanager
+        from conemu_keys import PROMPT_EVENT
+
+        steps = []
+
+        @contextmanager
+        def Navigation(environment, switch):
+            steps.append('listen')
+            self.assertIs(switch, windows_vim.ConEmuMacro)
+            environment[PROMPT_EVENT] = 'session-event'
+            try:
+                yield
+            finally:
+                steps.append('stop')
+
+        def RunDebugger(*args, **options):
+            steps.append('run')
+            self.assertEqual(options['env'][PROMPT_EVENT], 'session-event')
+            return mock.Mock()
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config = {key: str(root / key) for key in ('state', 'ready', 'close', 'closed', 'result', 'done',
+                                                       'vim_result', 'source_pane', 'origin_environment')}
+            config.update(debugger=['python', 'portable_ipdb.py', 'sample.py'], cwd=directory)
+            (root / 'ready').write_text('ready')
+            (root / 'origin_environment').write_text('{}')
+            with mock.patch('sys.stdin.isatty', return_value=True), mock.patch('sys.stdout.isatty', return_value=True), \
+                    mock.patch('sys.stderr.isatty', return_value=True), mock.patch('windows_vim.ConfirmConEmuSplit'), \
+                    mock.patch('conemu_keys.RuntimeNavigation', side_effect=Navigation), \
+                    mock.patch('windows_vim.subprocess.Popen', side_effect=RunDebugger), \
+                    mock.patch('source_vim.WaitForDebugger', return_value=0), mock.patch('builtins.input', return_value=''):
+                self.assertEqual(windows_vim.Debug(config), 0)
+        self.assertEqual(steps, ['listen', 'run', 'stop'])
+
     def test_windows_waits_for_session_when_worker_is_unknown_or_debugger_is_alive(self):
         for statuses in ([None], [False, True], [False, None], [KeyboardInterrupt, True]):
             with self.subTest(statuses=statuses), tempfile.TemporaryDirectory() as directory:
