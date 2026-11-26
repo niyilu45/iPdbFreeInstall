@@ -586,7 +586,9 @@ From Vim, press `Ctrl+W j` to move down to ipdb. From ipdb, press `Ctrl+W k`
 to move back up. The mouse can also select either pane.
 Use `Ctrl+W +` or `Ctrl+W -` to change the current pane's height and
 `Ctrl+W =` to make the panes equal. For a count, use `5 Ctrl+W +` in Vim
-or `Ctrl+W 5 +` at the debugger prompt. Vim's internal splits take priority
+or `Ctrl+W 5 +` at the debugger prompt. The debugger pane keeps its own
+scrollback buffer so earlier output stays available when the pane shrinks.
+Vim's internal splits take priority
 when a command can act inside Vim. Git Bash tabs using the ConEmu MSYS
 connector are supported.
 In other Windows terminals, wt.exe on PATH opens a Windows Terminal window

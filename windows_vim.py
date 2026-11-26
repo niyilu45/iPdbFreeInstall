@@ -198,7 +198,8 @@ def OpenConEmuVim(config, config_path):
     server = source.get('server') or ''
     if not server.isdecimal() or int(server) == 0:
         raise RuntimeError('ConEmu did not identify the Vim source pane')
-    macro = 'Tab(7,-2);' + ConEmuLaunch('s50Vfn', '--debug', config_path)
+    # Reserve scrollback in the debugger pane independently of its viewport.
+    macro = 'Tab(7,-2);' + ConEmuLaunch('s50Vfnh32766', '--debug', config_path)
     RequestConEmuPane(config, 'debug_pane', macro, int(server), 'ConEmu did not create the debugger pane below Vim')
 
 

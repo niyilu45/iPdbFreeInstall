@@ -132,7 +132,7 @@ class WindowsVimTests(unittest.TestCase):
                     self.assertIn('Shell("new_console:fnt:ipdb"', first[0][0])
                     self.assertIn('--vim', first[0][0])
                     self.assertEqual(second[1]['server'], 456)
-                    self.assertIn('Tab(7,-2);Shell("new_console:s50Vfn"', second[0][0])
+                    self.assertIn('Tab(7,-2);Shell("new_console:s50Vfnh32766"', second[0][0])
                     self.assertIn('--debug', second[0][0])
 
     def test_conemu_reply_alone_does_not_confirm_a_pane(self):
