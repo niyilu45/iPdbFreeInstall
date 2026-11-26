@@ -3,6 +3,7 @@ import importlib
 import importlib.abc
 import importlib.machinery
 import linecache
+import os
 from pathlib import Path
 import sys
 import ast
@@ -53,6 +54,19 @@ class ExitCallbacks:
 def ReadSource(filename):
     with tokenize.open(filename) as stream:
         return stream.read().splitlines(True)
+
+
+def DisplayPath(filename):
+    """Recover filesystem casing for Windows paths in debugger output."""
+    if sys.platform != 'win32' or filename.startswith('<'):
+        return filename
+    try:
+        resolved = str(Path(filename).resolve(strict=True))
+        if os.path.normcase(resolved) == os.path.normcase(os.path.abspath(filename)):
+            return resolved if os.path.isabs(filename) else os.path.relpath(resolved)
+    except (OSError, RuntimeError, ValueError):
+        pass
+    return filename
 
 
 def SyntaxLocation(error):
@@ -115,7 +129,7 @@ def RefreshBreakpoints(debugger):
             line = None
         if line is None:
             breakpoint.disable()
-            debugger.message('Breakpoint {} disabled: original source cannot be uniquely located in {}. Set it again after reviewing the edit.'.format(breakpoint.number, breakpoint.file))
+            debugger.message('Breakpoint {} disabled: original source cannot be uniquely located in {}. Set it again after reviewing the edit.'.format(breakpoint.number, DisplayPath(breakpoint.file)))
             continue
         if line != breakpoint.line:
             previous = breakpoint.line
@@ -126,7 +140,7 @@ def RefreshBreakpoints(debugger):
             breakpoint.line = line
             breakpoint.func_first_executable_lineno = None
             bdb.Breakpoint.bplist.setdefault((breakpoint.file, line), []).append(breakpoint)
-            debugger.message('Breakpoint {} moved: {}:{} -> {}'.format(breakpoint.number, breakpoint.file, previous, line))
+            debugger.message('Breakpoint {} moved: {}:{} -> {}'.format(breakpoint.number, DisplayPath(breakpoint.file), previous, line))
         breakpoint._portable_source = new
     debugger.breaks = {}
     for filename, line in bdb.Breakpoint.bplist:

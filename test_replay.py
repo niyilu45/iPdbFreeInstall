@@ -115,7 +115,10 @@ class ReplayTests(unittest.TestCase):
 
     def test_restores_distinct_iterations_at_the_same_conditional_breakpoint(self):
         with tempfile.TemporaryDirectory() as directory:
-            script = Path(directory) / 'sample.py'
+            root = Path(directory) / 'ReplayCase'
+            root.mkdir()
+            script = root / 'SampleCase.py'
+            location = str(Path(root.name) / script.name).encode('ascii') + b':4'
             script.write_text('def collect():\n'
                               '    values = []\n'
                               '    for value in range(4):\n'
@@ -124,7 +127,7 @@ class ReplayTests(unittest.TestCase):
                               'result = collect()\n'
                               'print(result)\n')
             with self.Session(script) as (command, _):
-                command(b'b 4 if value >= 1', b'Breakpoint 1')
+                command(b'b 4 if value >= 1', b'Breakpoint 1', location)
                 command(b'c', b'value >= 1')
                 command(b'up')
                 command(b'checkpoint', NOTICE, b'innermost script frame')
@@ -136,4 +139,5 @@ class ReplayTests(unittest.TestCase):
                 command(b'p values', b'[0]\r\n')
                 command(b'restart 2', b'Restored replay checkpoint 2')
                 command(b'p values', b'[0, 1]\r\n')
-                command(b'info breakpoints', b'value >= 1')
+                command(b'info breakpoints', b'value >= 1', location)
+                command(b'bt', b'#0 collect at ', location)

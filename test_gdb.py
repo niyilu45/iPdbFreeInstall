@@ -2,6 +2,7 @@
 import io
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 import tempfile
@@ -233,6 +234,32 @@ class CommandTests(unittest.TestCase):
         Pdb.do_frame(debugger, '1')
         self.assertIs(debugger.curframe, outer)
         self.assertEqual(selected[-1], (outer, 10))
+
+    @unittest.skipUnless(sys.platform == 'win32', 'Windows path casing required')
+    def test_breakpoint_output_and_backtrace_use_disk_casing(self):
+        launcher = Path(__file__).with_name('portable_ipdb.py')
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / 'MixedCaseDirectory'
+            root.mkdir()
+            script = root / 'EntryPoint.py'
+            helper = root / 'InnerWorker.py'
+            script.write_text('from InnerWorker import Work\nWork()\n')
+            helper.write_text('def Work():\n    value = 22\n    print(value)\n')
+            commands = 'b {}:3 if value == 22\ni b\nc\nbt\ndis 1\nen 1\nd 1\nq\n'.format(str(helper).lower())
+            result = subprocess.run([sys.executable, '-B', str(launcher), '--plain', str(script).lower()],
+                                    input=commands.encode('utf-8'), stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                    env=dict(os.environ, IPY_TEST_SIMPLE_PROMPT='1', PYTHONIOENCODING='utf-8'),
+                                    timeout=20)
+            output = result.stdout.decode('utf-8', errors='replace')
+            self.assertEqual(result.returncode, 0, output)
+            location = re.escape(str(Path(root.name) / helper.name) + ':3')
+            self.assertRegex(output, r'Breakpoint 1 at .*' + location)
+            self.assertRegex(output, r'1\s+breakpoint\s+keep\s+yes\s+at .*' + location)
+            self.assertIn('Breakpoint 1 hit; condition: value == 22', output)
+            self.assertRegex(output, r'#0 Work at .*' + location)
+            self.assertRegex(output, r'#1 <module> at .*' + re.escape(str(Path(root.name) / script.name) + ':2'))
+            for action in ('Disabled', 'Enabled', 'Deleted'):
+                self.assertRegex(output, action + r' breakpoint 1 at .*' + location)
 
     def test_conditional_breakpoint_execution(self):
         import bdb

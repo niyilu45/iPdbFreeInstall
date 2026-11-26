@@ -2,6 +2,9 @@
 import os
 import re
 import sys
+from functools import wraps
+
+from reload_code import DisplayPath
 
 
 COMMANDS = (
@@ -21,6 +24,35 @@ ALIASES = {
 # The ConEmu connector can pass focus reports and keyboard sequences to a
 # Windows line reader as text. A standalone Escape can also precede a command.
 CONEMU_ESCAPE = re.compile(r'\x1b(?:\[[0-?]*[ -/]*[@-~]?|O[@-~])?')
+BREAKPOINT_LOCATION = re.compile(
+    r'^((?:Breakpoint \d+|(?:Deleted|Enabled|Disabled) breakpoint \d+|'
+    r'\d+ +breakpoint +(?:keep|del) +(?:yes|no)) +at )([^\r\n]+)(:\d+)(?=\r?\n|$)')
+
+
+def ShowBreakpointPath(command):
+    """Render native breakpoint messages while keeping bdb's lookup keys intact."""
+    @wraps(command)
+    def Run(self, *args, **kwargs):
+        message = self.message
+        previous = vars(self).get('message')
+
+        def Render(text):
+            match = BREAKPOINT_LOCATION.match(text) if isinstance(text, str) else None
+            if match:
+                start, end = match.span(2)
+                text = text[:start] + DisplayPath(text[start:end]) + text[end:]
+            message(text)
+
+        self.message = Render
+        try:
+            return command(self, *args, **kwargs)
+        finally:
+            if previous is None:
+                del self.message
+            else:
+                self.message = previous
+
+    return Run
 
 
 def Resolve(word, choices, aliases=None):
@@ -136,7 +168,7 @@ def Install():
                                 and line <= len(lines) and lines[line - 1].strip()
                                 and not lines[line - 1].lstrip().startswith('#'))
             if not candidates:
-                self.error('No executable line below {}:{}'.format(filename, lineno))
+                self.error('No executable line below {}:{}'.format(DisplayPath(filename), lineno))
                 return 0
             target = candidates[0]
             self.message('Breakpoint moved from line {} to {}'.format(lineno, target))
@@ -372,7 +404,7 @@ def Install():
         for number, (frame, line) in frames:
             marker = '*' if len(self.stack) - 1 - number == self.curindex else ' '
             self.message('{} #{} {} at {}:{}'.format(marker, number,
-                         frame.f_code.co_name, frame.f_code.co_filename, line))
+                         frame.f_code.co_name, DisplayPath(frame.f_code.co_filename), line))
 
     def Set(self, argument):
         """set var NAME = PYTHON_EXPRESSION"""
@@ -465,8 +497,13 @@ def Install():
     Pdb.precmd = Precmd
     Pdb.do__portable_noop = Noop
     Pdb.do_down = Down
-    Pdb.do_clear = Clear
-    Pdb.do_d = Clear
+    if sys.platform == 'win32':
+        Pdb.do_break = Pdb.do_b = ShowBreakpointPath(Pdb.do_break)
+        Pdb.do_cl = ShowBreakpointPath(Pdb.do_cl)
+        Clear = ShowBreakpointPath(Clear)
+        Enable = ShowBreakpointPath(Enable)
+        Disable = ShowBreakpointPath(Disable)
+    Pdb.do_clear = Pdb.do_d = Clear
     Pdb.do_enable = Enable
     Pdb.do_disable = Disable
     Pdb.print_stack_entry = StackEntry
