@@ -12,7 +12,7 @@ from split_ipdb import KeyFilter, SourceRows, SourceBox, FitCells, ViewStart, Sc
 from terminal_keys import SourceKeys, PaneKeys
 from unittest import mock
 from types import SimpleNamespace
-from launch_mode import SelectMode
+from launch_mode import CheckpointOption, SelectMode, WslCheckpoint
 
 
 class SplitTests(unittest.TestCase):
@@ -107,6 +107,44 @@ class SplitTests(unittest.TestCase):
         for platform, interactive, terminal in [('win32', True, 'xterm'), ('linux', False, 'xterm'), ('linux', True, 'dumb')]:
             self.assertEqual(SelectMode(['sample.py'], platform, interactive, terminal), ('plain', ['sample.py']))
         self.assertEqual(SelectMode(['--help'], 'linux', True, 'xterm'), ('plain', ['--help']))
+
+    def test_checkpoint_option_precedes_the_debuggee(self):
+        self.assertEqual(CheckpointOption(['--source-vim', '--checkpoint', 'demo.py', '--checkpoint']),
+                         (True, ['--source-vim', 'demo.py', '--checkpoint']))
+        self.assertEqual(CheckpointOption(['--checkpoint', '--plain', 'demo.py']),
+                         (True, ['--plain', 'demo.py']))
+        self.assertEqual(CheckpointOption(['demo.py', '--checkpoint']), (False, ['demo.py', '--checkpoint']))
+
+    def test_wsl_checkpoint_preserves_arguments_and_exit_code(self):
+        from contextlib import redirect_stderr
+        from io import StringIO
+
+        working_directory = r'D:\Debug work'
+        launcher = r'C:\Some installations\ipdb.sh'
+        script = r'D:\Debug work\case & test.py'
+        process = mock.Mock()
+        process.wait.side_effect = [KeyboardInterrupt, 7]
+        with mock.patch('shutil.which', return_value='wsl.exe'), \
+                mock.patch('os.getcwd', return_value=working_directory), \
+                mock.patch('subprocess.Popen', return_value=process) as spawn, redirect_stderr(StringIO()):
+            self.assertEqual(WslCheckpoint(['--source-vim', script, 'one two', '--checkpoint'], launcher), 7)
+        self.assertEqual(spawn.call_args[0][0][:6], ['wsl.exe', '--cd', working_directory, '--exec', 'sh', '-c'])
+        self.assertEqual(spawn.call_args[0][0][7:], ['ipdb-checkpoint', launcher, '2', '--source-vim', script,
+                                                     'one two', '--checkpoint'])
+
+    def test_wsl_checkpoint_handles_pre_script_debugger_options(self):
+        from contextlib import redirect_stderr
+        from io import StringIO
+
+        for arguments, position in (
+                (['--plain', '-c', 'break 4', r'D:\Debug work\demo.py'], '4'),
+                (['--source-vim', '--command=break 4', r'D:\Debug work\demo.py'], '3'),
+                (['--plain', '-m', 'module.name', r'D:\Unchanged argument'], '0'),
+                (['--plain', '--check'], '0')):
+            with self.subTest(arguments=arguments), mock.patch('shutil.which', return_value='wsl.exe'), \
+                    mock.patch('subprocess.Popen') as spawn, redirect_stderr(StringIO()):
+                WslCheckpoint(arguments, 'ipdb.sh')
+                self.assertEqual(spawn.call_args[0][0][9:], [position] + arguments)
 
     def test_pudb_handoff_state(self):
         import portable_ipdb

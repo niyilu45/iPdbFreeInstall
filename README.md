@@ -206,14 +206,27 @@ restores process memory and the execution stack at the saved stop. It does
 not merely copy a variables dictionary. A stable supervisor keeps the
 terminal session alive while the active process changes.
 
+From a Windows cmd or PowerShell terminal, start a checkpoint session with:
+
+```bat
+ipdbVim.cmd --checkpoint my.py
+```
+
+If your `ipdb` alias runs `ipdbVim`, use `ipdb --checkpoint my.py`. The option
+starts Linux Python, system Vim, and tmux in the same terminal through the
+default WSL distribution. It keeps the launch directory and converts Windows
+script paths automatically. `ipdb.cmd --plain --checkpoint my.py` uses the
+command prompt without Vim. Use a complete Git checkout, or put the matching
+Linux offline archive under `dist` next to the Windows bundle's launcher.
+Install Linux Python dependencies in WSL if your script needs them.
+
 Limits:
 
 - Linux CLI launch only, with a single Python/native thread and at most
   eight live snapshots. Native worker threads (for example from numerical
   libraries) also cause checkpoint creation to be refused.
-- On Windows, open a WSL terminal and run `./ipdbVim.sh script.py` with Linux
-  Python. In ConEmu, use a WSL terminal tab for this command. A native Windows
-  Python session cannot create these process snapshots.
+- A native Windows Python session cannot create these process snapshots.
+  Inside WSL, `./ipdbVim.sh script.py` also enables them directly.
 - IPython's background history writer is stopped before the first fork;
   persistent IPython history is then disabled for this session.
 - Restoring a checkpoint keeps all checkpoints available. Use restart 1,

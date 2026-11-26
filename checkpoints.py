@@ -63,7 +63,7 @@ class Checkpoints:
 
     def Create(self, debugger):
         if sys.platform == 'win32':
-            raise ValueError('Checkpoints require Linux process snapshots. In WSL, run ./ipdbVim.sh with Linux Python.')
+            raise ValueError('Checkpoints use Linux process snapshots. Start with ipdbVim.cmd --checkpoint script.py.')
         if not sys.platform.startswith('linux'):
             raise ValueError('Checkpoints require Linux process snapshots. Run the debugger on Linux.')
         if not self.supervised:

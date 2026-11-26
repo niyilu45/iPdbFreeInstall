@@ -50,6 +50,16 @@ def Activate():
 
 
 if __name__ == '__main__':
+    from launch_mode import CheckpointOption, WslCheckpoint
+    checkpoint, arguments = CheckpointOption(sys.argv[1:])
+    if checkpoint and arguments[:1] == ['--pudb']:
+        sys.exit('The checkpoint launch option requires ipdb, use --plain, --tui, or Vim mode.')
+    if checkpoint and sys.platform == 'win32':
+        try:
+            sys.exit(WslCheckpoint(arguments, Path(__file__).resolve().with_name('ipdb.sh')))
+        except (RuntimeError, OSError) as error:
+            sys.exit(str(error))
+    sys.argv[1:] = arguments
     print('[ipdb] Starting with Python {}: {}'.format(sys.version.split()[0], sys.executable), file=sys.stderr, flush=True)
     print('[ipdb] Checking offline dependencies...', file=sys.stderr, flush=True)
 
