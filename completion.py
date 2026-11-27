@@ -6,30 +6,88 @@ import os
 import json
 
 
-def BufferMatches(text):
+class AmbiguousBuffer(ValueError):
+    def __init__(self, name):
+        super().__init__('Multiple Vim buffers are named {!r}. Specify a file path.'.format(name))
+
+
+def BufferFiles():
     state = os.environ.get('IPDB_VIM_STATE')
     if not state:
         return []
     try:
         with open(state + '.buffers', encoding='utf-8') as stream:
             files = json.load(stream)
-        matches = []
-        for path in files:
-            if not isinstance(path, str) or not path.endswith('.py'):
-                continue
-            candidate = path
-            if not os.path.isabs(text):
-                try:
-                    candidate = os.path.relpath(path)
-                except ValueError:
-                    pass  # Windows cannot make a path relative across drives.
-            if os.altsep and os.altsep in text and os.sep not in text:
-                candidate = candidate.replace(os.sep, os.altsep)
-            if candidate.startswith(text) or (not os.path.dirname(text) and os.path.basename(path).startswith(text)):
-                matches.append(candidate)
-        return sorted(set(matches))
     except (OSError, ValueError, TypeError):
         return []
+    unique = {}
+    if isinstance(files, list):
+        for path in files:
+            if isinstance(path, str) and path.lower().endswith('.py'):
+                path = os.path.abspath(path)
+                unique.setdefault(os.path.normcase(path), path)
+    return sorted(unique.values())
+
+
+def ExplicitFilePath(text):
+    return bool(os.path.dirname(text) or os.path.splitdrive(text)[0])
+
+
+def BufferMatches(text):
+    matches = []
+    for path in BufferFiles():
+        candidate = path
+        if not os.path.isabs(text) and not os.path.splitdrive(text)[0]:
+            try:
+                candidate = os.path.relpath(path)
+                if os.path.normcase(text).startswith('.' + os.sep):
+                    candidate = os.path.join('.', candidate)
+            except ValueError:
+                pass  # Windows cannot make a path relative across drives.
+        if os.altsep and os.altsep in text and os.sep not in text:
+            candidate = candidate.replace(os.sep, os.altsep)
+        if os.path.normcase(candidate).startswith(os.path.normcase(text)):
+            matches.append(text + candidate[len(text):])
+        elif not ExplicitFilePath(text) and os.path.basename(path).startswith(text):
+            matches.append(candidate)
+    return sorted(set(matches))
+
+
+def BuffersByName():
+    names = {}
+    for path in BufferFiles():
+        names.setdefault(os.path.normcase(os.path.basename(path)), []).append(path)
+    return names
+
+
+def BreakpointFiles(prefix):
+    if ExplicitFilePath(prefix):
+        return BufferMatches(prefix)
+    name_prefix = os.path.normcase(prefix)
+    matches = {name: paths for name, paths in BuffersByName().items() if name.startswith(name_prefix)}
+    for name, paths in matches.items():
+        if len(paths) > 1 and (name == name_prefix or len(matches) == 1):
+            raise AmbiguousBuffer(os.path.basename(paths[0]))
+    return sorted(prefix + os.path.basename(paths[0])[len(prefix):] for paths in matches.values())
+
+
+def ResolveBreakpointFile(filename):
+    if len(filename) >= 2 and filename[0] == filename[-1] and filename[0] in ('"', "'"):
+        filename = filename[1:-1]
+    if ExplicitFilePath(filename):
+        if os.path.isabs(filename) or not os.environ.get('IPDB_VIM_STATE'):
+            return filename
+        absolute = os.path.abspath(os.path.expanduser(filename))
+        if os.path.isfile(absolute):
+            return absolute
+        if not absolute.lower().endswith('.py') and os.path.isfile(absolute + '.py'):
+            return absolute + '.py'
+        return filename
+    name = filename if filename.lower().endswith('.py') else filename + '.py'
+    paths = BuffersByName().get(os.path.normcase(name), ())
+    if len(paths) > 1:
+        raise AmbiguousBuffer(os.path.basename(paths[0]))
+    return paths[0] if paths else filename
 
 
 def ExpressionMatches(debugger, prefix):
@@ -111,15 +169,15 @@ def StringMatches(debugger, line, begin, end):
 
 def Matches(debugger, line, begin, end):
     from gdb_commands import COMMANDS, ALIASES, Resolve
-    strings = StringMatches(debugger, line, begin, end)
-    if strings is not None:
-        return strings
     before = line[:end]
     stripped = before.lstrip()
     start = len(before) - len(stripped)
     parts = stripped.split(None, 1)
     text = line[begin:end]
     if not parts or (len(parts) == 1 and not stripped.endswith((' ', '\t'))):
+        strings = StringMatches(debugger, line, begin, end)
+        if strings is not None:
+            return strings
         if stripped.startswith('!'):
             pass
         else:
@@ -134,6 +192,21 @@ def Matches(debugger, line, begin, end):
     except ValueError:
         return []
     command_end = start + len(parts[0]) if parts else start
+    argument = before[command_end:].lstrip()
+    in_condition = (argument.startswith(('if ', 'if\t')) or re.search(r'\sif\s', argument) or ',' in argument)
+    if command in ('break', 'tbreak') and not in_condition:
+        quote = argument[0] if argument[:1] in ('"', "'") else ''
+        path = argument[len(quote):]
+        if ':' not in os.path.splitdrive(path)[1] and not (quote and path.endswith(quote)):
+            candidates = BreakpointFiles(path)
+            if candidates:
+                closing = quote if len(candidates) == 1 and line[end:end + 1] != quote else ''
+                return FilenameTail(line, begin, end, argument,
+                                    [quote + candidate + closing for candidate in candidates])
+        return None  # Retain pdb's completion for functions, files, and line numbers.
+    strings = StringMatches(debugger, line, begin, end)
+    if strings is not None:
+        return strings
     argument_before_word = line[command_end:begin].strip()
     choices = {
         'info': ('breakpoints', 'locals', 'args', 'checkpoints', 'display', 'timing'),
@@ -145,15 +218,10 @@ def Matches(debugger, line, begin, end):
     }
     if command in choices and not argument_before_word:
         return [name for name in choices[command] if name.startswith(text)]
-    if command in ('break', 'tbreak', 'clear', 'source') and not re.search(r'\sif\s', before):
-        path = before[command_end:].lstrip()
-        path_start = end - len(path)
-        files = BufferMatches(path)
+    if command in ('clear', 'source') and not re.search(r'\sif\s', before):
+        files = BufferMatches(argument)
         if files:
-            if begin < path_start:
-                return [line[begin:path_start] + candidate for candidate in files]
-            fixed = line[path_start:begin]
-            return [candidate[len(fixed):] for candidate in files if candidate.startswith(fixed)]
+            return FilenameTail(line, begin, end, argument, files)
         return None  # Retain pdb's filename/line completion where available.
     match = re.search(r'[\w.]+$', before, re.UNICODE)
     prefix = match.group() if match else ''
@@ -166,6 +234,14 @@ def Matches(debugger, line, begin, end):
     return [candidate[trim:] for candidate in ExpressionMatches(debugger, prefix)]
 
 
+def FilenameTail(line, begin, end, argument, files):
+    path_start = end - len(argument)
+    if begin < path_start:
+        return [line[begin:path_start] + candidate for candidate in files]
+    fixed = line[path_start:begin]
+    return [candidate[len(fixed):] for candidate in files if candidate.startswith(fixed)]
+
+
 def CommonMatch(text, candidates):
     common = os.path.commonprefix(candidates)
     if common != text and (common.startswith(text) or
@@ -176,6 +252,7 @@ def CommonMatch(text, candidates):
 
 def InstallPromptCompletion():
     from IPython.terminal.debugger import TerminalPdb
+    from prompt_toolkit.application import get_app, run_in_terminal
     from prompt_toolkit.completion import Completer, Completion
 
     original_init = TerminalPdb.pt_init
@@ -191,7 +268,15 @@ def InstallPromptCompletion():
             end = document.cursor_position
             text = document.get_word_before_cursor(WORD=True)
             begin = end - len(text)
-            candidates = Matches(self.debugger, document.text, begin, end)
+            try:
+                candidates = Matches(self.debugger, document.text, begin, end)
+            except AmbiguousBuffer as error:
+                message = str(error)
+                if get_app().is_running:
+                    run_in_terminal(lambda: self.debugger.error(message))
+                else:
+                    self.debugger.error(message)
+                return
             if candidates is None:
                 if self.native is not None:
                     yield from self.native.get_completions(document, complete_event)
@@ -227,6 +312,9 @@ def InstallCompletion(debugger_class):
                     # receive the underlying variable list, even on repeated Tab.
                     common = CommonMatch(text, candidates)
                     self._portable_matches = [common] if common is not None else []
+            except AmbiguousBuffer as error:
+                self._portable_matches = []
+                ReadlineNotice(self, readline, str(error))
             except Exception:
                 self._portable_matches = []
         candidates = getattr(self, '_portable_matches', None)
@@ -244,3 +332,15 @@ def InstallCompletion(debugger_class):
     debugger_class.complete = Complete
     debugger_class.cmdloop = CommandLoop
     InstallPromptCompletion()
+
+
+def ReadlineNotice(debugger, readline, message):
+    print('\n' + message, file=debugger.stdout, flush=True)
+    try:
+        import ctypes
+        # Reset the display coordinates after writing above the input line.
+        ctypes.CDLL(readline.__file__).rl_reset_line_state()
+    except (AttributeError, OSError):
+        redisplay = getattr(readline, 'redisplay', None)
+        if redisplay is not None:
+            redisplay()

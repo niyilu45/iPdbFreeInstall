@@ -138,9 +138,11 @@ def ParseIds(argument):
 
 def Install():
     from IPython.core.debugger import Pdb
+    from completion import AmbiguousBuffer, InstallCompletion, ResolveBreakpointFile
     if getattr(Pdb, '_portable_gdb', False):
         return
     Pdb._portable_gdb = True
+    original_break = Pdb.do_break
     original_clear = Pdb.do_clear
     original_enable = Pdb.do_enable
     original_disable = Pdb.do_disable
@@ -470,6 +472,23 @@ def Install():
         if missing:
             self.error('Unknown {} IDs: {}'.format(label, ', '.join(map(str, missing))))
 
+    @wraps(original_break)
+    def Break(self, argument, temporary=0):
+        location, comma, condition = argument.partition(',')
+        filename, colon, line = location.rpartition(':')
+        if colon and filename.strip():
+            try:
+                int(line)
+            except ValueError:
+                return original_break(self, argument, temporary)
+            try:
+                filename = ResolveBreakpointFile(filename.strip())
+            except AmbiguousBuffer as error:
+                self.error(str(error))
+                return
+            argument = filename + colon + line + comma + condition
+        return original_break(self, argument, temporary)
+
     def Clear(self, argument):
         if not argument.strip() or ':' in argument:
             return original_clear(self, argument)
@@ -498,11 +517,12 @@ def Install():
     Pdb.do__portable_noop = Noop
     Pdb.do_down = Down
     if sys.platform == 'win32':
-        Pdb.do_break = Pdb.do_b = ShowBreakpointPath(Pdb.do_break)
+        Break = ShowBreakpointPath(Break)
         Pdb.do_cl = ShowBreakpointPath(Pdb.do_cl)
         Clear = ShowBreakpointPath(Clear)
         Enable = ShowBreakpointPath(Enable)
         Disable = ShowBreakpointPath(Disable)
+    Pdb.do_break = Pdb.do_b = Break
     Pdb.do_clear = Pdb.do_d = Clear
     Pdb.do_enable = Enable
     Pdb.do_disable = Disable
@@ -520,5 +540,4 @@ def Install():
     Pdb.do_checkpoint = Checkpoint
     Pdb.do_restart = Restart
     Pdb.do_delete_checkpoint = DeleteCheckpoint
-    from completion import InstallCompletion
     InstallCompletion(Pdb)

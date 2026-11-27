@@ -372,6 +372,45 @@ qa!
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual((root / 'errors').read_text(), '')
 
+    @unittest.skipUnless(shutil.which('vim'), 'System Vim required')
+    def test_vim_publishes_loaded_python_buffers(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            first = root / 'One' / 'Shared.py'
+            second = root / 'Two' / 'Shared.py'
+            uppercase = root / 'UpperCase.PY'
+            for source in (first, second, uppercase):
+                source.parent.mkdir(exist_ok=True)
+                source.write_text('value = 1\n')
+            script = root / 'buffers.vim'
+            script.write_text('''execute 'source ' . fnameescape($IPDB_BRIDGE)
+set hidden
+function! s:BufferFiles() abort
+  call IpdbSourcePoll(0)
+  return json_decode(join(readfile($IPDB_VIM_STATE . '.buffers'), ""))
+endfunction
+execute 'edit ' . fnameescape($IPDB_TEST_ROOT . '/One/Shared.py')
+let first = bufnr('%')
+let snapshots = [s:BufferFiles()]
+execute 'edit ' . fnameescape($IPDB_TEST_ROOT . '/Two/Shared.py')
+execute 'edit ' . fnameescape($IPDB_TEST_ROOT . '/UpperCase.PY')
+call add(snapshots, s:BufferFiles())
+execute 'bunload ' . first
+call add(snapshots, s:BufferFiles())
+call writefile([json_encode(snapshots)], $IPDB_TEST_ROOT . '/snapshots')
+qa!
+''')
+            env = dict(os.environ, IPDB_TMUX_SOCKET='', IPDB_VIM_CLOSE='', IPDB_TEST_ROOT=root.as_posix(),
+                       IPDB_VIM_READY=str(root / 'ready'), IPDB_VIM_STATE=str(root / 'state'),
+                       IPDB_BRIDGE=Path(__file__).with_name('source_vim.vim').resolve().as_posix())
+            result = subprocess.run([shutil.which('vim'), '-N', '-u', 'NONE', '-i', 'NONE', '-n', '-es', '-S', script.as_posix()],
+                                    env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=20)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual((root / 'ready').read_text().strip(), 'ready')
+            snapshots = json.loads((root / 'snapshots').read_text(encoding='utf-8'))
+            self.assertEqual([set(map(Path, paths)) for paths in snapshots],
+                             [{first}, {first, second, uppercase}, {second, uppercase}])
+
     @unittest.skipUnless(sys.platform.startswith('linux') and shutil.which('vim') and shutil.which('tmux'), 'Linux Vim/tmux required')
     def test_paging_repaints_missing_terminal_rows(self):
         import time

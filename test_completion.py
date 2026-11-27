@@ -142,6 +142,86 @@ class CompletionTests(unittest.TestCase):
 
 
 class BufferCompletionTests(unittest.TestCase):
+    def test_break_filename_completion_and_tab_ambiguity(self):
+        import io
+        import os
+        from pathlib import Path
+        import sys
+        from unittest import mock
+
+        import portable_ipdb
+        from IPython.core.debugger import Pdb
+        from IPython.terminal.debugger import TerminalPdb
+        from prompt_toolkit.completion import CompleteEvent
+        from prompt_toolkit.document import Document
+
+        files = [str(Path('First Dir') / 'Shared.py'), str(Path('Other Dir') / 'Shared.py'),
+                 str(Path('Outside') / 'Module Name.PY')]
+        output = io.StringIO()
+        session = SimpleNamespace(completer=None, complete_while_typing=True)
+        with mock.patch('IPython.terminal.debugger.PromptSession', return_value=session), \
+                mock.patch('IPython.terminal.debugger._use_simple_prompt', False, create=True):
+            terminal = TerminalPdb(stdout=output)
+        loop = getattr(terminal, 'pt_loop', None)
+        if loop is not None:
+            self.addCleanup(loop.close)
+        event = CompleteEvent(completion_requested=True)
+        debugger = Pdb(stdout=output)
+        with mock.patch('completion.BufferFiles', return_value=files):
+            line = 'b Sha'
+            redisplay = mock.Mock()
+            readline = SimpleNamespace(get_line_buffer=lambda: line, get_begidx=lambda: 2,
+                                       get_endidx=lambda: len(line), redisplay=redisplay)
+            with mock.patch.dict(sys.modules, {'readline': readline}):
+                self.assertIsNone(debugger.complete('Sha', 0))
+                self.assertIsNone(debugger.complete('Sha', 1))
+            redisplay.assert_called_once_with()
+            self.assertEqual(list(session.completer.get_completions(Document(line), event)), [])
+            notice = 'Multiple Vim buffers are named \'Shared.py\'. Specify a file path.'
+            self.assertEqual(output.getvalue().count(notice), 2)
+            for line, expected in (('tbreak Mod', 'tbreak Module Name.PY'),
+                                   ('b "Module Na', 'b "Module Name.PY"'),
+                                   ('b First Dir' + os.sep + 'Sha', 'b First Dir' + os.sep + 'Shared.py')):
+                with self.subTest(line=line):
+                    items = session.completer.get_completions(Document(line), event)
+                    self.assertEqual([line[:len(line) + item.start_position] + item.text for item in items], [expected])
+
+    def test_loaded_files_can_set_breakpoints_and_duplicates_require_a_path(self):
+        import json
+        import os
+        from pathlib import Path
+        import subprocess
+        import sys
+        import tempfile
+
+        launcher = Path(__file__).with_name('portable_ipdb.py').resolve()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            script = root / 'Source' / 'Entry.py'
+            first = script.with_name('Shared.py')
+            second = root / 'Other Dir' / 'Shared.py'
+            unique = root / 'Outside' / 'BufferOnly.PY'
+            for path in (first, second, unique):
+                path.parent.mkdir()
+                path.write_text('value = 1\nvalue += 1\n')
+            script.write_text('stop = True\n')
+            state = root / 'state'
+            state.with_suffix('.buffers').write_text(json.dumps([str(first), str(second), str(unique)]))
+            commands = ('b Shared.py:2\ntbreak Shared:2\nb BufferOnly:2 if value == 1\n'
+                        'b "Other Dir/Shared.py":2\ni b\nq\n')
+            result = subprocess.run([sys.executable, '-B', str(launcher), '--plain', str(script)],
+                                    input=commands, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                    universal_newlines=True, cwd=directory, timeout=20,
+                                    env=dict(os.environ, IPDB_VIM_STATE=str(state), IPY_TEST_SIMPLE_PROMPT='1',
+                                             IPYTHONDIR=directory))
+            output = result.stdout
+            self.assertEqual(result.returncode, 0, output)
+            self.assertEqual(output.count('Specify a file path.'), 2, output)
+            self.assertIn('Breakpoint 1 at {}:2'.format(unique.resolve()), output)
+            self.assertIn('Breakpoint 2 at {}:2'.format(second.resolve()), output)
+            self.assertIn('stop only if value == 1', output)
+            self.assertNotIn('Breakpoint 3 at ', output)
+
     def test_vim_python_buffers(self):
         import tempfile
         import json

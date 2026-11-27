@@ -432,6 +432,9 @@ The readline and prompt-toolkit debugger prompts complete:
 - Current-frame variables: p sample_c<Tab> -> p sample_count.
 - Object attributes: disp sample_values.ap<Tab> -> disp sample_values.append.
 - Expressions in condition, display, print, set-variable, and break-if commands.
+- Loaded Vim Python files for `break` and `tbreak`. Type `b hel<Tab>`, then add
+  `:LINE`. If more than one buffer has that filename, enter a relative or
+  absolute path, such as `b src/helper.py:17`.
 
 Press Tab to extend to the longest common prefix. The debugger uses names from
 the selected frame. If further input is needed, type more characters before

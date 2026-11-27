@@ -299,12 +299,13 @@ endfunction
 function! IpdbSourcePoll(timer) abort
   if !empty($IPDB_VIM_STATE)
     try
-      let files = sort(map(filter(getbufinfo(), 'v:val.loaded && fnamemodify(v:val.name, ":e") ==# "py"'), 'fnamemodify(v:val.name, ":p")'))
+      let files = sort(map(filter(getbufinfo(), 'v:val.loaded && fnamemodify(v:val.name, ":e") ==? "py"'), 'fnamemodify(v:val.name, ":p")'))
       let encoded = json_encode(files)
       if encoded !=# get(s:, 'buffer_files', '')
         call writefile([encoded], $IPDB_VIM_STATE . '.buffers.tmp')
-        call rename($IPDB_VIM_STATE . '.buffers.tmp', $IPDB_VIM_STATE . '.buffers')
-        let s:buffer_files = encoded
+        if rename($IPDB_VIM_STATE . '.buffers.tmp', $IPDB_VIM_STATE . '.buffers') == 0
+          let s:buffer_files = encoded
+        endif
       endif
     catch
       " Buffer completion must not interrupt source navigation.
