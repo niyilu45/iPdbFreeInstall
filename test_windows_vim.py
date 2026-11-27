@@ -73,9 +73,10 @@ class WindowsVimTests(unittest.TestCase):
         steps = []
 
         @contextmanager
-        def Navigation(environment, switch):
+        def Navigation(environment, switch, resize):
             steps.append('listen')
             self.assertIs(switch, windows_vim.ConEmuMacro)
+            resize('+', 5)
             environment[PROMPT_EVENT] = 'session-event'
             try:
                 yield
@@ -90,16 +91,18 @@ class WindowsVimTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             config = {key: str(root / key) for key in ('state', 'ready', 'close', 'closed', 'result', 'done',
-                                                       'vim_result', 'source_pane', 'origin_environment')}
+                                                       'vim_result', 'source_pane', 'origin_environment', 'config_path')}
             config.update(debugger=['python', 'portable_ipdb.py', 'sample.py'], cwd=directory)
             (root / 'ready').write_text('ready')
             (root / 'origin_environment').write_text('{}')
             with mock.patch('sys.stdin.isatty', return_value=True), mock.patch('sys.stdout.isatty', return_value=True), \
                     mock.patch('sys.stderr.isatty', return_value=True), mock.patch('windows_vim.ConfirmConEmuSplit'), \
                     mock.patch('conemu_keys.RuntimeNavigation', side_effect=Navigation), \
+                    mock.patch('windows_vim.ResizeConEmu') as resize, \
                     mock.patch('windows_vim.subprocess.Popen', side_effect=RunDebugger), \
                     mock.patch('source_vim.WaitForDebugger', return_value=0), mock.patch('builtins.input', return_value=''):
                 self.assertEqual(windows_vim.Debug(config), 0)
+            resize.assert_called_once_with('+', 5, config_path=config['config_path'])
         self.assertEqual(steps, ['listen', 'run', 'stop'])
 
     def test_windows_waits_for_session_when_worker_is_unknown_or_debugger_is_alive(self):

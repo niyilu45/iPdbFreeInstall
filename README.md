@@ -620,7 +620,8 @@ to move back up, including while the debugged program is running. `Ctrl+W`
 followed by an arrow key also switches panes. The mouse can select either pane.
 Use `Ctrl+W +` or `Ctrl+W -` to change the current pane's height and
 `Ctrl+W =` to make the panes equal. For a count, use `5 Ctrl+W +` in Vim
-or `Ctrl+W 5 +` at the debugger prompt. The debugger pane keeps its own
+or `Ctrl+W 5 +` in the debugger pane, including while the program is running.
+The debugger pane keeps its own
 scrollback buffer so earlier output stays available when the pane shrinks.
 Vim's internal splits take priority
 when a command can act inside Vim. Git Bash tabs using the ConEmu MSYS

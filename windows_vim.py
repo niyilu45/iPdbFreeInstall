@@ -1,5 +1,6 @@
 """Native Windows system Vim launchers; no WSL or tmux required."""
 from contextlib import ExitStack
+from functools import partial
 import errno
 import json
 import os
@@ -64,7 +65,8 @@ def Debug(config):
             environment = Environment(config, origin)
             if origin is not None:
                 from conemu_keys import RuntimeNavigation
-                session.enter_context(RuntimeNavigation(environment, ConEmuMacro))
+                resize = partial(ResizeConEmu, config_path=config['config_path'])
+                session.enter_context(RuntimeNavigation(environment, ConEmuMacro, resize))
             debugger = subprocess.Popen(config['debugger'], env=environment, cwd=config['cwd'])
             if 'debugger_pid' in config:
                 try:
@@ -286,10 +288,10 @@ def ConsoleRows():
         kernel.CloseHandle(handle)
 
 
-def ResizeConEmu(action, count):
+def ResizeConEmu(action, count, config_path=None):
     import msvcrt
 
-    config_path = Path(os.environ['IPDB_CONEMU_CONFIG'])
+    config_path = Path(config_path if config_path is not None else os.environ['IPDB_CONEMU_CONFIG'])
     # Vim can start another resize job before the first one measures its move.
     # Lock one byte per session until both the bulk move and correction finish.
     with config_path.with_suffix('.resize-lock').open('a+b') as guard:
