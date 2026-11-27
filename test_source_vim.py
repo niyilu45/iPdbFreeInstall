@@ -113,7 +113,7 @@ class VimTests(unittest.TestCase):
     def test_step_into_function_publishes_new_file(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            (root / 'helper.py').write_text('def helper():\n    return 42\n')
+            (root / 'helper.py').write_text('def helper():\n    """Return a number."""\n    return 42\n')
             (root / 'sample.py').write_text('from helper import helper\nresult = helper()\n')
             state = root / 'state'
             launcher = Path(__file__).with_name('portable_ipdb.py').resolve()
@@ -122,7 +122,31 @@ class VimTests(unittest.TestCase):
                 cwd=directory, timeout=30,
                 env=dict(os.environ, IPDB_VIM_STATE=str(state), IPY_TEST_SIMPLE_PROMPT='1', IPYTHONDIR=directory))
             self.assertEqual(result.returncode, 0, result.stdout)
-            self.assertEqual(Path(json.loads(state.read_text())['file']).name, 'helper.py')
+            self.assertNotIn('--Call--', result.stdout)
+            position = json.loads(state.read_text())
+            self.assertEqual(Path(position['file']).name, 'helper.py')
+            self.assertEqual(position['line'], 3)
+
+    def test_step_into_generated_function_reports_missing_source_and_keeps_the_frame(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / 'sample.py'
+            state = root / 'state'
+            source.write_text("helper = eval(compile('lambda value: value + 1', '<generated>', 'eval'))\n"
+                              'result = helper(31)\n')
+            launcher = Path(__file__).with_name('portable_ipdb.py').resolve()
+            result = subprocess.run([sys.executable, '-B', str(launcher), '--plain', str(source)],
+                input='n\ns\np value\nbt\nq\n', stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                universal_newlines=True, cwd=directory, timeout=30,
+                env=dict(os.environ, IPDB_VIM_STATE=str(state), IPY_TEST_SIMPLE_PROMPT='1', IPYTHONDIR=directory))
+            self.assertEqual(result.returncode, 0, result.stdout)
+            self.assertIn('No source file for <lambda> at <generated>:1', result.stdout)
+            self.assertIn('ipdb> 31\n', result.stdout)
+            self.assertIn('#0 <lambda> at <generated>:1', result.stdout)
+            self.assertNotIn('--Call--', result.stdout)
+            position = json.loads(state.read_text())
+            self.assertEqual(Path(position['file']).resolve(), source.resolve())
+            self.assertEqual(position['line'], 2)
 
     def test_syntax_error_publishes_the_source_and_can_be_repaired(self):
         with tempfile.TemporaryDirectory() as directory:

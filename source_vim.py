@@ -175,8 +175,10 @@ def InstallHook(path):
         if getattr(self, '_portable_vim_explicit_stack', False):
             return original(self, frame_lineno, *args, **kwargs)
         frame, line = frame_lineno
-        location = getattr(self, '_portable_syntax_location', (frame.f_code.co_filename, line))
-        if not SyncSource(self, *location):
+        filename, line = getattr(self, '_portable_syntax_location', (frame.f_code.co_filename, line))
+        if not os.path.isfile(filename):
+            self.message('No source file for {} at {}:{}'.format(frame.f_code.co_name, filename, line))
+        elif not SyncSource(self, filename, line):
             return original(self, frame_lineno, *args, **kwargs)
         show = getattr(self, '_portable_show_displays', None)
         if show is not None:

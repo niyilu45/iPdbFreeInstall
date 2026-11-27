@@ -113,6 +113,19 @@ class ReplayTests(unittest.TestCase):
                 command(b'p value', b'16\r\n')
                 command(b'info checkpoints', b'1  ')
 
+    def test_step_stops_at_a_checkpointable_function_line(self):
+        with tempfile.TemporaryDirectory() as directory:
+            script = Path(directory) / 'sample.py'
+            script.write_text('def helper(value):\n    offset = 2\n    return value + offset\nresult = helper(31)\n')
+            with self.Session(script) as (command, _):
+                command(b'n')
+                self.assertNotIn(b'--Call--', command(b's'))
+                command(b'bt', b'#0 helper at ', b'sample.py:2')
+                command(b'checkpoint', b'Replay checkpoint 1 created')
+                command(b'n')
+                command(b'restart 1', b'Restored replay checkpoint 1')
+                command(b'p value', b'31\r\n')
+
     def test_restores_distinct_iterations_at_the_same_conditional_breakpoint(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory) / 'ReplayCase'

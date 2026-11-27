@@ -206,6 +206,10 @@ def Install():
 
     Pdb.break_here = BreakHere
 
+    def UserCall(self, frame, argument_list):
+        # Keep bdb tracing this frame. The line event stops before the first statement runs.
+        return
+
     def DisplayEntries(self):
         if not hasattr(self, '_portable_displays'):
             self._portable_displays = {}
@@ -526,6 +530,7 @@ def Install():
     Pdb.do_clear = Pdb.do_d = Clear
     Pdb.do_enable = Enable
     Pdb.do_disable = Disable
+    Pdb.user_call = UserCall
     Pdb.print_stack_entry = StackEntry
     Pdb._portable_show_displays = ShowDisplays
     Pdb.do_display = Display

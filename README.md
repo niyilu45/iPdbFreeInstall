@@ -192,6 +192,10 @@ PuDB retains its own command/key interface.
 The r alias now means run, as in GDB. Use finish or return for pdb's old r
 behavior. Existing Python breakpoint syntax with a comma also works.
 
+`s` enters a Python function at its first executable line. If the frame has
+no source file to open in Vim, the command pane identifies the stop. Use `bt`
+or `p` to inspect it.
+
 ## Linux checkpoints (experimental)
 
     checkpoint
