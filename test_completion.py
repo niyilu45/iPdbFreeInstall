@@ -1,4 +1,5 @@
 """Command and selected-frame completion regression tests."""
+import sys
 import unittest
 from types import SimpleNamespace
 from completion import Matches, ExpressionMatches
@@ -139,6 +140,49 @@ class CompletionTests(unittest.TestCase):
     def test_missing_frame_and_native_filename_completion(self):
         self.assertEqual(Matches(SimpleNamespace(), 'chec', 0, 4), ['checkpoint'])
         self.assertIsNone(self.Complete('break sample'))
+
+    @unittest.skipUnless(sys.platform == 'win32', 'Windows prompt typeahead required')
+    def test_terminal_ctrl_c_cancels_blank_typeahead_without_eating_explicit_commands(self):
+        import asyncio
+        import io
+        from unittest import mock
+
+        import portable_ipdb
+        from IPython import get_ipython
+        from IPython.terminal.debugger import TerminalPdb
+        from ipdb import __main__ as ipdb_main
+        from prompt_toolkit.history import InMemoryHistory
+        from prompt_toolkit.input import create_pipe_input
+        from prompt_toolkit.output import DummyOutput
+
+        async def Check():
+            ipdb_main._get_debugger_cls()
+            with create_pipe_input() as pipe, \
+                    mock.patch.object(get_ipython(), 'debugger_history', InMemoryHistory()), \
+                    mock.patch('IPython.terminal.debugger._use_simple_prompt', False):
+                debugger = TerminalPdb(stdout=io.StringIO(), pt_session_options={'input': pipe, 'output': DummyOutput()})
+                loop = asyncio.get_running_loop()
+
+                async def Prompt():
+                    try:
+                        return await asyncio.wait_for(loop.run_in_executor(None, debugger._prompt), 5)
+                    except asyncio.TimeoutError:
+                        pipe.close()
+                        raise
+
+                try:
+                    debugger.lastcmd = 'continue'
+                    debugger._portable_resume = ('continue', 99)
+                    pipe.send_text('n\r\r\rp before\r\r\x03p after\r\r')
+                    self.assertEqual([await Prompt() for _ in range(4)], ['n', 'p before', 'p after', ''])
+                    self.assertEqual(debugger.lastcmd, '')
+                    self.assertIsNone(debugger._portable_resume)
+                    pipe.send_text('c 100\r\r\x03p stopped\r')
+                    self.assertEqual(await Prompt(), 'p stopped')
+                finally:
+                    debugger.pt_loop.close()
+
+        asyncio.run(Check())
 
 
 class BufferCompletionTests(unittest.TestCase):

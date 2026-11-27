@@ -196,6 +196,11 @@ behavior. Existing Python breakpoint syntax with a comma also works.
 no source file to open in Vim, the command pane identifies the stop. Use `bt`
 or `p` to inspect it.
 
+Press Enter on an empty command line to repeat the previous command. `c 100`
+runs up to 100 successive continues. `n` and `s` also accept a count.
+Ctrl+C cancels pending repeats and pauses a running program. Enter an explicit
+command to start repeating again.
+
 ## Linux checkpoints (experimental)
 
     checkpoint

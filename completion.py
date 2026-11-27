@@ -254,6 +254,10 @@ def InstallPromptCompletion():
     from IPython.terminal.debugger import TerminalPdb
     from prompt_toolkit.application import get_app, run_in_terminal
     from prompt_toolkit.completion import Completer, Completion
+    from prompt_toolkit.filters import Condition
+    from prompt_toolkit.key_binding import KeyBindings, merge_key_bindings
+    from prompt_toolkit.keys import Keys
+    from reload_code import CancelRepeats
 
     original_init = TerminalPdb.pt_init
 
@@ -292,6 +296,48 @@ def InstallPromptCompletion():
             # IPython still updates its original completer with the selected frame.
             session.completer = FrameCompleter(self, session.completer)
             session.complete_while_typing = False
+            bindings = KeyBindings()
+            enter_keys = (Keys.ControlM, Keys.ControlJ)
+            interrupt_keys = (Keys.ControlC, getattr(Keys, 'SIGINT', Keys.ControlC))
+
+            @Condition
+            def CommandFocused():
+                return get_app().current_buffer is session.default_buffer
+
+            @bindings.add('c-c', filter=CommandFocused)
+            def Cancel(event):
+                CancelRepeats(self)
+                if event.current_buffer.complete_state:
+                    event.current_buffer.cancel_completion()
+                else:
+                    event.current_buffer.reset()
+
+            def PendingInterrupt():
+                app = get_app()
+                if not CommandFocused() or not any(key.key in interrupt_keys for key in app.key_processor.input_queue):
+                    return False
+                line = app.current_buffer.text.strip()
+                if not line:
+                    return True
+                from gdb_commands import SplitArgument, Translate
+                try:
+                    command, count = SplitArgument(Translate(line))
+                    return command in ('continue', 'next', 'step') and int(count) > 1
+                except ValueError:
+                    return False
+
+            @bindings.add('c-m', filter=Condition(PendingInterrupt))
+            @bindings.add('c-j', filter=Condition(PendingInterrupt))
+            def CancelQueuedRepeat(event):
+                # The interrupt may already be queued when a counted command is submitted.
+                if event.current_buffer.text:
+                    event.current_buffer.reset()
+                queue = event.key_processor.input_queue
+                while queue and queue[0].key in enter_keys:
+                    queue.popleft()
+
+            existing = getattr(session, 'key_bindings', None)
+            session.key_bindings = merge_key_bindings([existing, bindings]) if existing is not None else bindings
 
     TerminalPdb.pt_init = Init
 

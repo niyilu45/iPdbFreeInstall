@@ -222,7 +222,7 @@ class ReplayCheckpoints:
 def RunReplayWorker(arguments, module):
     import checkpoints
     from IPython import get_ipython
-    from reload_code import RefreshBreakpoints
+    from reload_code import DebuggerInterrupts, RefreshBreakpoints
 
     session = os.environ['IPDB_REPLAY_SESSION']
     token = os.environ['IPDB_REPLAY_WORKER']
@@ -247,8 +247,10 @@ def RunReplayWorker(arguments, module):
         while True:
             debugger._wait_for_mainpyfile = True
             debugger._user_requested_quit = False
+            debugger._portable_resume = None
             try:
-                debugger.run(source[1], manager.Namespace())
+                with DebuggerInterrupts(debugger):
+                    debugger.run(source[1], manager.Namespace())
             except pdb.Restart:
                 source = debugger._portable_replay_next_source
                 manager.Prepare(source[0])

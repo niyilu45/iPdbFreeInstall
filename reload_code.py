@@ -2,6 +2,7 @@
 import importlib
 import importlib.abc
 import importlib.machinery
+from contextlib import contextmanager, ExitStack
 import linecache
 import os
 from pathlib import Path
@@ -207,6 +208,47 @@ def Refresh(debugger):
     Manager.Reset()
 
 
+def CancelRepeats(debugger):
+    debugger._portable_resume = None
+    debugger.lastcmd = ''
+    debugger.cmdqueue[:] = [command for command in debugger.cmdqueue if command.strip()]
+
+
+@contextmanager
+def DebuggerInterrupts(debugger):
+    previous = None
+    nosigint = debugger.nosigint
+
+    def Pause(_signum, frame):
+        CancelRepeats(debugger)
+        if debugger.allow_kbdint or getattr(debugger, 'quitting', True) or debugger.botframe is None:
+            raise KeyboardInterrupt
+        frames = []
+        current = frame
+        while current is not None and current is not debugger.botframe:
+            frames.append(current)
+            current = current.f_back
+        if current is None or not frames:
+            raise KeyboardInterrupt
+        # Continue can remove tracing. Bring it back on the live stack.
+        debugger.set_step()
+        for current in frames:
+            current.f_trace = debugger.trace_dispatch
+        sys.settrace(debugger.trace_dispatch)
+
+    if not nosigint and threading.current_thread() is threading.main_thread():
+        previous = signal.getsignal(signal.SIGINT)
+        if previous is not None:
+            signal.signal(signal.SIGINT, Pause)
+            debugger.nosigint = True
+    try:
+        yield
+    finally:
+        if previous is not None and signal.getsignal(signal.SIGINT) is Pause:
+            signal.signal(signal.SIGINT, previous)
+        debugger.nosigint = nosigint
+
+
 def Install():
     from IPython.core.debugger import Pdb
     if getattr(Pdb, '_portable_reload', False):
@@ -216,6 +258,16 @@ def Install():
     original_set_break = Pdb.set_break
     original_interaction = Pdb.interaction
     original_cmdloop = Pdb._cmdloop
+    original_exception = Pdb.user_exception
+    original_sigint = Pdb.sigint_handler
+
+    def Sigint(self, signum, frame):
+        CancelRepeats(self)
+        return original_sigint(self, signum, frame)
+
+    def UserException(self, frame, exc_info):
+        self._portable_resume = None
+        return original_exception(self, frame, exc_info)
 
     def Interaction(self, *args, **kwargs):
         timing = getattr(self, '_portable_timing', None)
@@ -234,10 +286,45 @@ def Install():
             if owns_pause:
                 timing.Resume()
 
+    def InteractiveCommands(self):
+        prompt = self.cmdloop
+        previous = vars(self).get('cmdloop')
+
+        def Read(*args, **kwargs):
+            try:
+                return prompt(*args, **kwargs)
+            except KeyboardInterrupt:
+                CancelRepeats(self)
+                raise
+
+        self.cmdloop = Read
+        try:
+            return original_cmdloop(self)
+        finally:
+            if previous is None:
+                del self.cmdloop
+            else:
+                self.cmdloop = previous
+
     def CommandLoop(self):
+        # Counted resume advances through actual debugger stops without faking keystrokes.
+        allow_kbdint = self.allow_kbdint
+        self.allow_kbdint = True
+        try:
+            repeat = getattr(self, '_portable_resume', None)
+            if repeat is not None:
+                command, remaining = repeat
+                self._portable_resume = (command, remaining - 1) if remaining > 1 else None
+                command(self, '')
+                return
+        except KeyboardInterrupt:
+            CancelRepeats(self)
+            self.message('--KeyboardInterrupt--')
+        finally:
+            self.allow_kbdint = allow_kbdint
         timing = getattr(self, '_portable_timing', None)
         if timing is None:
-            return original_cmdloop(self)
+            return InteractiveCommands(self)
         from function_timing import UpdateTimingReport
         # Breakpoints with command lists can enter the prompt without interaction().
         owns_pause = timing.paused_at is None
@@ -246,7 +333,7 @@ def Install():
         try:
             UpdateTimingReport(self, timing, allow_empty=timing.seen_prompt, announce=True)
             timing.seen_prompt = True
-            return original_cmdloop(self)
+            return InteractiveCommands(self)
         finally:
             if owns_pause:
                 timing.Resume()
@@ -314,38 +401,16 @@ def Install():
             callbacks = ExitCallbacks()
             callbacks.Start()
             completed = False
-            previous_sigint = None
-            previous_nosigint = self.nosigint
+            self._portable_resume = None
+            interrupts = ExitStack()
             timing = None
-
-            def Pause(_signum, frame):
-                if self.allow_kbdint or getattr(self, 'quitting', True) or self.botframe is None:
-                    raise KeyboardInterrupt
-                frames = []
-                current = frame
-                while current is not None and current is not self.botframe:
-                    frames.append(current)
-                    current = current.f_back
-                if current is None or not frames:
-                    raise KeyboardInterrupt
-                # Continue can remove tracing altogether. Restore it on the
-                # live stack without resetting the debugger's run boundary.
-                self.set_step()
-                for current in frames:
-                    current.f_trace = self.trace_dispatch
-                sys.settrace(self.trace_dispatch)
 
             try:
                 if first_run:
                     filename = source_filename(target)
                     if filename:
                         self._portable_project_root = Path(filename).resolve().parent
-                if not previous_nosigint and threading.current_thread() is threading.main_thread():
-                    previous_sigint = signal.getsignal(signal.SIGINT)
-                    if previous_sigint is not None:
-                        signal.signal(signal.SIGINT, Pause)
-                        # Keep the same handler across continue and step commands.
-                        self.nosigint = True
+                interrupts.enter_context(DebuggerInterrupts(self))
                 if getattr(self, '_portable_timing_enabled', False):
                     from function_timing import FunctionTiming
                     candidate = FunctionTiming(self._portable_project_root)
@@ -357,6 +422,7 @@ def Install():
                 completed = True
                 return result
             except SyntaxError as error:
+                self._portable_resume = None
                 location = SyntaxLocation(error)
                 if location is None:
                     raise
@@ -374,6 +440,7 @@ def Install():
                 finally:
                     del self._portable_syntax_location
             except SystemExit as error:
+                self._portable_resume = None
                 # Keep the traceback frames alive while inspecting program exit.
                 traceback = error.__traceback__
                 self.message('Program requested exit: {!r}. Inspect the saved stack, r to rerun, or q to quit.'.format(error.code))
@@ -383,13 +450,12 @@ def Install():
                     return
                 raise
             except KeyboardInterrupt as error:
+                CancelRepeats(self)
                 traceback = error.__traceback__
                 self.message('Program interrupted. Inspect the saved stack; use r to restart or q to quit.')
                 return self.interaction(None, traceback)
             finally:
-                if previous_sigint is not None and signal.getsignal(signal.SIGINT) is Pause:
-                    signal.signal(signal.SIGINT, previous_sigint)
-                self.nosigint = previous_nosigint
+                interrupts.close()
                 try:
                     callbacks.Finish(completed)
                 finally:
@@ -410,6 +476,8 @@ def Install():
     Pdb.do_rtime = Pdb.do_rt = RunTimed
     Pdb.set_break = SetBreak
     Pdb.interaction = Interaction
+    Pdb.user_exception = UserException
+    Pdb.sigint_handler = Sigint
     Pdb._cmdloop = CommandLoop
     Pdb.do_restart = Run
     if hasattr(Pdb, '_run'):

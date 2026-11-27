@@ -210,6 +210,21 @@ def Install():
         # Keep bdb tracing this frame. The line event stops before the first statement runs.
         return
 
+    def CountedResume(command, name):
+        @wraps(command)
+        def Resume(self, argument):
+            try:
+                count = int(argument) if argument.strip() else 1
+                if count < 1:
+                    raise ValueError()
+            except ValueError:
+                self.error('Usage: {} [COUNT], with COUNT a positive integer'.format(name))
+                return
+            self._portable_resume = (command, count - 1) if count > 1 else None
+            return command(self, '')
+
+        return Resume
+
     def DisplayEntries(self):
         if not hasattr(self, '_portable_displays'):
             self._portable_displays = {}
@@ -530,6 +545,9 @@ def Install():
     Pdb.do_clear = Pdb.do_d = Clear
     Pdb.do_enable = Enable
     Pdb.do_disable = Disable
+    Pdb.do_continue = Pdb.do_c = Pdb.do_cont = CountedResume(Pdb.do_continue, 'continue')
+    Pdb.do_next = Pdb.do_n = CountedResume(Pdb.do_next, 'next')
+    Pdb.do_step = Pdb.do_s = CountedResume(Pdb.do_step, 'step')
     Pdb.user_call = UserCall
     Pdb.print_stack_entry = StackEntry
     Pdb._portable_show_displays = ShowDisplays

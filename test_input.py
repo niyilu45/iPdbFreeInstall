@@ -41,8 +41,9 @@ class InputParityTests(unittest.TestCase):
 
         launcher = Path(__file__).with_name('portable_ipdb.py').resolve()
         for mode in ('--plain', '--tui'):
-            for resume, timed in ((b'c', False), (b'n', False), (b'c', True)):
-                with self.subTest(mode=mode, resume=resume, timed=timed), tempfile.TemporaryDirectory() as directory:
+            for resume, timed, queued in ((b'c', False, False), (b'n', False, False),
+                                          (b'c', True, False), (b'c', False, True)):
+                with self.subTest(mode=mode, resume=resume, timed=timed, queued=queued), tempfile.TemporaryDirectory() as directory:
                     script = Path(directory) / 'loop.py'
                     source = (
                         'def Inner():\n'
@@ -68,7 +69,7 @@ class InputParityTests(unittest.TestCase):
                         os.chdir(directory)
                         os.execve(sys.executable, [sys.executable, '-S', str(launcher), mode, str(script)], environment)
 
-                    def ReadUntil(marker):
+                    def ReadUntil(marker, prompt_after=False):
                         output = bytearray()
                         deadline = time.monotonic() + 10
                         while time.monotonic() < deadline:
@@ -80,7 +81,8 @@ class InputParityTests(unittest.TestCase):
                                 if not chunk:
                                     break
                                 output.extend(chunk)
-                                if marker in output:
+                                position = output.find(marker)
+                                if position >= 0 and (not prompt_after or b'ipdb> ' in output[position + len(marker):]):
                                     return bytes(output)
                         self.fail('Missing {!r}: {!r}'.format(marker, bytes(output[-2000:])))
 
@@ -95,10 +97,20 @@ class InputParityTests(unittest.TestCase):
                         else:
                             Command(b'n')
                             Command(b'n')
+                        if queued:
+                            # Set this on the debugger's actual PTY, including inside the split view.
+                            os.write(master, b'!import termios; flags = termios.tcgetattr(0); '
+                                             b'flags[3] |= termios.NOFLSH; termios.tcsetattr(0, termios.TCSANOW, flags); '
+                                             b'print("KEEP_PENDING", bool(termios.tcgetattr(0)[3] & termios.NOFLSH))\n')
+                            ReadUntil(b'\nKEEP_PENDING True', prompt_after=True)
                         os.write(master, resume + b'\n')
                         ReadUntil(b'LOOP_READY')
-                        os.write(master, b'\x03')
+                        os.write(master, (b'\n' * 32 if queued else b'') + b'\x03')
                         ReadUntil(b'ipdb> ')
+                        if queued:
+                            # Uncanceled blank lines would continue the infinite loop before this query.
+                            os.write(master, b'p token\n')
+                            ReadUntil(b'\n1439811\r\n', prompt_after=True)
                         if timed:
                             cache = Path(directory) / 'ipdCache'
                             reports = list(cache.glob('callgrind.out.*'))

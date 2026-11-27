@@ -3,6 +3,7 @@ import io
 import os
 from pathlib import Path
 import re
+import signal
 import subprocess
 import sys
 import tempfile
@@ -279,6 +280,38 @@ class CommandTests(unittest.TestCase):
             finally:
                 debugger.clear_all_breaks()
                 bdb.Breakpoint.bplist.clear()
+
+    def test_counted_resume_commands_stop_at_requested_location(self):
+        launcher = Path(__file__).with_name('portable_ipdb.py').resolve()
+        with tempfile.TemporaryDirectory() as directory:
+            script = Path(directory) / 'counted.py'
+            script.write_text('def Helper(value):\n    first = value + 1\n    second = first + 1\n'
+                              '    return second\nseed = 8\nresult = Helper(seed)\n'
+                              'for index in range(10):\n    mark = index\n')
+            result = subprocess.run([sys.executable, '-B', str(launcher), '--plain', str(script)],
+                input='n 2\ns 2\np first\nb 8 if index % 2 == 0\nc 3\np index\nq\n',
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True, timeout=20,
+                env=dict(os.environ, IPY_TEST_SIMPLE_PROMPT='1', IPYTHONDIR=directory))
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertIn('ipdb> 9\n', result.stdout)
+        self.assertIn('ipdb> 4\n', result.stdout)
+        self.assertEqual(result.stdout.count('hit; condition: index % 2 == 0'), 3, result.stdout)
+
+    @unittest.skipUnless(hasattr(signal, 'raise_signal'), 'Requires Python signal.raise_signal')
+    def test_interrupt_cancels_counted_continue_and_queued_empty_lines(self):
+        launcher = Path(__file__).with_name('portable_ipdb.py').resolve()
+        with tempfile.TemporaryDirectory() as directory:
+            script = Path(directory) / 'interrupt.py'
+            script.write_text('import signal\nfor index in range(10):\n    mark = index\n'
+                              '    if index == 2:\n        signal.raise_signal(signal.SIGINT)\n'
+                              '    guard = index\nprint("REACHED" + "_END")\n')
+            result = subprocess.run([sys.executable, '-B', str(launcher), '--plain', str(script)],
+                input='b 3\nc 100\n' + '\n' * 24 + 'p index\nbt\nq\n',
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True, timeout=20,
+                env=dict(os.environ, IPY_TEST_SIMPLE_PROMPT='1', IPYTHONDIR=directory))
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertIn('ipdb> 2\n', result.stdout)
+        self.assertNotIn('REACHED_END\n', result.stdout)
 
     def test_condition_without_location(self):
         import bdb
