@@ -607,6 +607,69 @@ qa!
                 subprocess.run(command + ['kill-server'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
     @unittest.skipUnless(sys.platform.startswith('linux') and shutil.which('vim') and shutil.which('tmux'), 'Linux Vim/tmux required')
+    def test_tmux_command_resize_restores_source_split_heights(self):
+        import time
+        import uuid
+        from source_vim import Shell
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            snapshot = root / 'layout'
+            setup = root / 'layout.vim'
+            setup.write_text('''set splitbelow splitright
+split
+split
+1resize 6
+2resize 12
+wincmd t
+function! SampleLayout(timer) abort
+  let layout = [&lines, win_getid(), map(getwininfo(), '[v:val.winid, v:val.width, v:val.height]')]
+  call writefile([json_encode(layout)], $IPDB_LAYOUT . '.tmp')
+  call rename($IPDB_LAYOUT . '.tmp', $IPDB_LAYOUT)
+endfunction
+call timer_start(50, function('SampleLayout'), {'repeat': -1})
+''')
+            socket = 'ipdb-heights-' + uuid.uuid4().hex
+            command = ['tmux', '-L', socket, '-f', '/dev/null']
+            env = dict(os.environ, HOME=directory, TERM='xterm-256color', IPDB_TMUX_SOCKET=socket,
+                       IPDB_VIM_READY=str(root / 'ready'), IPDB_LAYOUT=str(snapshot))
+            bridge = Path(__file__).with_name('source_vim.vim').resolve()
+
+            def Tmux(*args):
+                return subprocess.check_output(command + list(args), env=env, universal_newlines=True).strip()
+
+            def Layout(rows, heights=None):
+                deadline = time.monotonic() + 5
+                layout = None
+                while time.monotonic() < deadline:
+                    if snapshot.exists():
+                        layout = json.loads(snapshot.read_text())
+                        if layout[0] == rows and (heights is None or [item[2] for item in layout[2]] == heights):
+                            return layout
+                    time.sleep(0.03)
+                self.fail('Vim did not report {} rows: {}'.format(rows, layout))
+
+            try:
+                source = 'debug:0.0'
+                debugger = 'debug:0.1'
+                Tmux('new-session', '-d', '-s', 'debug', '-x', '90', '-y', '48', 'cat')
+                Tmux('split-window', '-v', '-l', '8', '-t', source, 'cat')
+                Tmux('respawn-pane', '-k', '-t', source,
+                     Shell(['vim', '-N', '-u', 'NONE', '-i', 'NONE', '-n', '-S', bridge, '-S', setup]))
+                baseline_rows = int(Tmux('display-message', '-p', '-t', source, '#{pane_height}'))
+                baseline = Layout(baseline_rows)
+                original = [item[2] for item in baseline[2]]
+                for delta, distribution in ((-4, [-2, -1, -1]), (0, [0, 0, 0]),
+                                            (5, [2, 2, 1]), (0, [0, 0, 0])):
+                    Tmux('resize-pane', '-t', debugger, '-y', str(8 - delta))
+                    heights = [height + change for height, change in zip(original, distribution)]
+                    actual = Layout(baseline_rows + delta, heights)
+                    self.assertEqual(actual[1], baseline[1])
+                    self.assertEqual([item[:2] for item in actual[2]], [item[:2] for item in baseline[2]])
+            finally:
+                subprocess.run(command + ['kill-server'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+    @unittest.skipUnless(sys.platform.startswith('linux') and shutil.which('vim') and shutil.which('tmux'), 'Linux Vim/tmux required')
     def test_linux_tmux_launch_and_exit(self):
         import pty
         import select

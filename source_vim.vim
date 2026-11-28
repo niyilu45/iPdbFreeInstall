@@ -332,6 +332,238 @@ function! IpdbSearchRedraw() abort
     call IpdbQueueRedraw()
   endif
 endfunction
+
+function! s:SourceFrames(windows) abort
+  let first = a:windows[0]
+  if len(a:windows) == 1
+    return {'first': first.winnr, 'last': first.winnr, 'anchor': first.winnr,
+          \ 'height': first.height + 1, 'reserve': 1, 'growth_step': 1,
+          \ 'minimum': min([first.height, max([1, &winminheight])]) + 1, 'slots': 1}
+  endif
+  " Window order is depth-first, even in Vim versions without winlayout().
+  " A seam can only divide consecutive windows, including in aligned grids.
+  for [position, extent, stacked] in [['winrow', 'height', 1], ['wincol', 'width', 0]]
+    let groups = []
+    let start = 0
+    let edge = 0
+    for index in range(len(a:windows) - 1)
+      let window = a:windows[index]
+      let edge = max([edge, window[position] + window[extent] + 1])
+      if edge <= min(map(a:windows[index + 1 :], 'v:val[position]'))
+        call add(groups, a:windows[start : index])
+        let start = index + 1
+      endif
+    endfor
+    if !empty(groups)
+      call add(groups, a:windows[start :])
+      let children = map(groups, 's:SourceFrames(v:val)')
+      if index(children, {}) >= 0
+        return {}
+      endif
+      let frame = {'children': children, 'stacked': stacked,
+            \ 'first': first.winnr, 'last': a:windows[-1].winnr}
+      for key in ['height', 'minimum', 'slots']
+        let frame[key] = 0
+        for child in children
+          let frame[key] = stacked ? frame[key] + child[key] : max([frame[key], child[key]])
+        endfor
+      endfor
+      " Older Vim can grow a composite frame by asking a leaf for more
+      " room than its containing stack has at the current height.
+      let reserve = min(map(copy(children), 'v:val.reserve'))
+      let anchor = filter(copy(children), 'v:val.reserve == reserve')[0]
+      let frame.reserve = reserve
+      let frame.anchor = anchor.anchor
+      let frame.growth_step = anchor.growth_step
+      if stacked
+        let minimum_leaf_height = max([1, &winminheight]) + 1
+        let frame.reserve += frame.minimum - minimum_leaf_height
+        let frame.growth_step += max([0, anchor.minimum - minimum_leaf_height])
+      endif
+      return frame
+    endif
+  endfor
+  return {}
+endfunction
+
+function! s:AllocateSourceHeights(frame, height) abort
+  let a:frame.target = a:height
+  if !has_key(a:frame, 'children')
+    return
+  endif
+  let children = a:frame.children
+  if !a:frame.stacked
+    for child in children
+      call s:AllocateSourceHeights(child, a:height)
+    endfor
+    return
+  endif
+  let sizes = map(copy(children), 'v:val.height')
+  let slots = []
+  for index in range(len(children))
+    call extend(slots, repeat([index], children[index].slots))
+  endfor
+  " Recompute from the original heights so reversing a resize also reverses
+  " the remainder, even after a small window has reached its minimum.
+  let remaining = a:height - a:frame.height
+  let step = remaining < 0 ? -1 : 1
+  while remaining
+    for index in slots
+      if step > 0 || sizes[index] > children[index].minimum
+        let sizes[index] += step
+        let remaining -= step
+      endif
+      if !remaining
+        break
+      endif
+    endfor
+  endwhile
+  for index in range(len(children))
+    call s:AllocateSourceHeights(children[index], sizes[index])
+  endfor
+endfunction
+
+function! s:SourceFrameHeight(frame) abort
+  return win_screenpos(a:frame.last)[0] + winheight(a:frame.last) + 1
+        \ - win_screenpos(a:frame.first)[0]
+endfunction
+
+function! s:ResizeSourceFrame(frame, height) abort
+  execute 'noautocmd ' . a:frame.anchor . 'resize ' . max([0, a:height - a:frame.reserve])
+endfunction
+
+function! s:SourceHeightAvailable(frames) abort
+  let available = 0
+  for frame in a:frames
+    let available += max([0, s:SourceFrameHeight(frame) - frame.minimum])
+  endfor
+  return available
+endfunction
+
+function! s:MoveLegacySourceBoundary(children, index, target) abort
+  let frame = a:children[a:index]
+  let change = a:target - s:SourceFrameHeight(frame)
+  if !change
+    return
+  endif
+  if frame.reserve == 1 || change > 0
+    call s:ResizeSourceFrame(frame, a:target)
+  else
+    " Vim's old :resize only grows an ancestor. First take the spare
+    " lines of the later frames, then take the rest from this frame.
+    let following = a:children[a:index + 1]
+    let height = s:SourceFrameHeight(following) - change
+          \ + s:SourceHeightAvailable(a:children[a:index + 2 :])
+    call s:ResizeSourceFrame(following, height)
+  endif
+endfunction
+
+function! s:PlaceLegacySourceBoundary(children, index, total_available) abort
+  let frame = a:children[a:index]
+  let following = a:children[a:index + 1]
+  call s:MoveLegacySourceBoundary(a:children, a:index, frame.target)
+  let height = s:SourceFrameHeight(frame)
+  if height == frame.target
+    return
+  endif
+  " Deeply nested :resize requests can be too small to reach an ancestor.
+  " Move farther, then approach the requested height from the other side.
+  let upper = min([height + s:SourceHeightAvailable(a:children[a:index + 1 :]),
+        \ max([frame.target + following.growth_step, height + frame.growth_step])])
+  if upper > height
+    call s:MoveLegacySourceBoundary(a:children, a:index, upper)
+    call s:MoveLegacySourceBoundary(a:children, a:index, frame.target)
+  endif
+  let height = s:SourceFrameHeight(frame)
+  let lower = max([frame.minimum,
+        \ min([frame.target - frame.growth_step, height - following.growth_step])])
+  if height != frame.target && lower < height
+    call s:MoveLegacySourceBoundary(a:children, a:index, lower)
+    call s:MoveLegacySourceBoundary(a:children, a:index, frame.target)
+  endif
+  let height = s:SourceFrameHeight(frame)
+  if height != frame.target && s:SourceHeightAvailable(a:children[a:index :]) == a:total_available
+    let growing = height < frame.target ? frame : following
+    if growing.target - growing.minimum == a:total_available
+      " All spare lines belong here. A larger request reaches the parent,
+      " where Vim clamps the change to the remaining available space.
+      call s:ResizeSourceFrame(growing, s:SourceFrameHeight(growing) + growing.growth_step)
+    endif
+  endif
+endfunction
+
+function! s:ApplySourceHeights(frame, total_available) abort
+  if !has_key(a:frame, 'children')
+    return
+  endif
+  let children = a:frame.children
+  if a:frame.stacked
+    " Set outer boundaries before resizing the windows inside them.
+    for index in range(len(children) - 1)
+      let child = children[index]
+      let change = child.target - s:SourceFrameHeight(child)
+      if !change
+        continue
+      endif
+      if exists('*win_move_statusline')
+        call win_move_statusline(win_getid(child.last), change)
+      else
+        call s:PlaceLegacySourceBoundary(children, index, a:total_available)
+      endif
+    endfor
+  endif
+  for child in children
+    call s:ApplySourceHeights(child, a:total_available)
+  endfor
+endfunction
+
+function! s:TrackSourceHeights() abort
+  if winnr('$') < 2
+    unlet! t:ipdb_source_heights
+    return
+  endif
+  let windows = filter(getwininfo(), 'v:val.tabnr == tabpagenr()')
+  let ids = map(copy(windows), 'v:val.winid')
+  let heights = map(copy(windows), 'v:val.height')
+  let state = get(t:, 'ipdb_source_heights', {})
+  if empty(state) || state.windows !=# ids || (state.lines == &lines && state.heights !=# heights)
+    " A split/close or a resize inside Vim establishes the next baseline.
+    for window in windows
+      let [window.winrow, window.wincol] = win_screenpos(window.winnr)
+    endfor
+    let t:ipdb_source_heights = {'windows': ids, 'heights': heights, 'lines': &lines,
+          \ 'baseline': s:SourceFrames(windows)}
+  elseif state.lines != &lines
+    let state.lines = &lines
+    let height = empty(state.baseline) ? 0 : s:SourceFrameHeight(state.baseline)
+    if height && height >= state.baseline.minimum
+      call s:AllocateSourceHeights(state.baseline, height)
+      let fixed = filter(copy(windows), 'getwinvar(v:val.winid, "&winfixheight")')
+      try
+        for window in fixed
+          noautocmd call setwinvar(window.winid, '&winfixheight', 0)
+        endfor
+        call s:ApplySourceHeights(state.baseline, height - state.baseline.minimum)
+      finally
+        for window in fixed
+          noautocmd call setwinvar(window.winid, '&winfixheight', 1)
+        endfor
+      endtry
+    endif
+    let state.heights = map(windows, 'winheight(v:val.winnr)')
+  endif
+endfunction
+
+augroup PortableIpdbSourceHeights
+  autocmd!
+  if s:tmux_view || s:windows_console_view
+    autocmd VimResized,WinEnter,TabEnter * call <SID>TrackSourceHeights()
+    if exists('##WinResized')
+      autocmd WinResized * call <SID>TrackSourceHeights()
+    endif
+  endif
+augroup END
+
 augroup PortableIpdbRedraw
   autocmd!
   if s:tmux_view
@@ -384,6 +616,9 @@ function! IpdbDiagnosticPoll() abort
   endtry
 endfunction
 function! IpdbSourcePoll(timer) abort
+  if s:tmux_view || s:windows_console_view
+    call s:TrackSourceHeights()
+  endif
   " Older Vim has no ModeChanged event when entering or leaving Visual.
   if !exists('##ModeChanged')
     call s:UpdateExecutionSelection()
@@ -555,6 +790,9 @@ function! s:RunConEmuCommand(path_names, arguments) abort
 endfunction
 
 function! IpdbWindowMove(direction) abort
+  if s:tmux_view || s:windows_console_view
+    call s:TrackSourceHeights()
+  endif
   let previous = win_getid()
   execute 'wincmd ' . a:direction
   if win_getid() != previous
@@ -627,6 +865,7 @@ endif
 function! s:ConEmuResize(action, count) abort
   if winnr('$') > 1
     execute a:count . 'wincmd ' . a:action
+    call s:TrackSourceHeights()
     return
   endif
   call s:RunConEmuCommand(['IPDB_CONEMU_PYTHON', 'IPDB_CONEMU_LAUNCHER'],

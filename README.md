@@ -680,6 +680,11 @@ same keys adjust its tmux pane (the source pane receives the remaining space).
 Counts are capped at 9999 and tmux enforces available terminal space. Use
 Ctrl-W = in the debugger pane to restore equal source/debugger heights.
 
+In tmux and ConEmu, changing the debugger pane height distributes the resulting
+rows across Vim's stacked source splits. Side-by-side windows share their
+band's height. Extra rows use a fixed top-to-bottom order, so returning the
+debugger pane to its previous height restores the source split heights.
+
 
 Mouse clicks now select the corresponding source window or command pane and
 clear unfinished window-key/search prefixes. In the built-in source view, clicks
