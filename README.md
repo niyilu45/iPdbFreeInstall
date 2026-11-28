@@ -686,9 +686,11 @@ clear unfinished window-key/search prefixes. In the built-in source view, clicks
 also place the browsing cursor. System Vim mode enables mouse=a, allowing Vim
 to select its internal windows. In tmux, a click leaves copy mode and returns
 to normal input before forwarding the event. Drag selection inside Vim can enter
-Vim Visual mode; press Escape to return to Normal mode. Shift+mouse is normally
-handled by the terminal for text copying and may bypass application focus; use
-a regular click before typing commands after terminal-side selection.
+Vim Visual mode. Selected text uses the Vim selection colors on the execution
+line. Press Escape to restore the execution highlight across the line.
+Shift+mouse is normally handled by the terminal for text copying and may bypass
+application focus; use a regular click before typing commands after terminal-side
+selection.
 
 
 In Windows console Vim and tmux, the bridge refreshes the affected source view

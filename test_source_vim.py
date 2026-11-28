@@ -267,6 +267,47 @@ vsplit
 wincmd l
 call cursor(1, 1)
 let other = win_getid()
+wincmd h
+let main = win_getid()
+let user_match = matchadd('Search', 'return')
+let sign_group = exists('*sign_place') ? ' group=IpdbExecution' : ''
+let sign_command = 'sign place' . sign_group . ' buffer=' . bufnr('%')
+let saved_signs = execute(sign_command)
+call cursor(2, 6)
+normal! v3l
+doautocmd IpdbExecutionCursor CursorMoved
+call assert_equal('v', mode(1))
+call assert_equal(main, win_getid())
+call assert_equal([2, 6], getpos('v')[1:2])
+call assert_equal([2, 9], getpos('.')[1:2])
+let selection_match = getwinvar(main, 'ipdb_execution_match')
+call assert_match('6c.*9c', selection_match[0])
+call assert_equal(selection_match[0], getwinvar(other, 'ipdb_execution_match')[0])
+call assert_notmatch('linehl=IpdbExecution', execute('sign list IpdbExecution'))
+call assert_equal(saved_signs, execute(sign_command))
+execute "normal! \\<Esc>"
+normal! V
+doautocmd IpdbExecutionCursor CursorMoved
+let line_match = getwinvar(main, 'ipdb_execution_match')
+call assert_match('1c.*13c', line_match[0])
+call assert_notmatch('linehl=IpdbExecution', execute('sign list IpdbExecution'))
+execute "normal! \\<Esc>"
+doautocmd IpdbExecutionCursor CursorMoved
+call assert_match('linehl=IpdbExecution', execute('sign list IpdbExecution'))
+call assert_equal([user_match], map(getmatches(), 'v:val.id'))
+call assert_equal('search_probe', @/)
+call assert_equal(['', -1], getwinvar(other, 'ipdb_execution_match'))
+call matchdelete(user_match)
+call append(1, '# Inserted above the stop')
+call cursor(3, 6)
+normal! v3l
+doautocmd IpdbExecutionCursor CursorMoved
+call assert_match('3l.*6c.*9c', getwinvar(main, 'ipdb_execution_match')[0])
+execute "normal! \\<Esc>"
+doautocmd IpdbExecutionCursor CursorMoved
+2delete _
+setlocal nomodified
+call win_gotoid(other)
 let message = json_decode(join(readfile($IPDB_VIM_STATE), "\\n"))
 let message.line = 4
 let message.event = 999
@@ -278,7 +319,6 @@ call IpdbWindowMove('h')
 call assert_equal(win_getid(1, 1), win_getid())
 call win_gotoid(win_getid(1, 1))
 call assert_equal(4, line('.'))
-let sign_group = exists('*sign_place') ? ' group=IpdbExecution' : ''
 let signs = execute('sign place' . sign_group . ' buffer=' . bufnr('%'))
 call assert_match('line=4 .*name=IpdbExecution', signs)
 call assert_notmatch('line=2 .*name=IpdbExecution', signs)

@@ -54,6 +54,8 @@ let s:last = ''
 let s:last_location = []
 let s:execution_sign = 0
 let s:execution_group = exists('*sign_place') ? ' group=IpdbExecution' : ''
+let s:execution_selection = []
+let s:execution_selection_windows = []
 highlight default IpdbExecution ctermbg=DarkGrey guibg=#444444
 sign define IpdbExecution text=>> texthl=Search linehl=IpdbExecution
 
@@ -103,10 +105,95 @@ function! IpdbExecutionCursor() abort
   endif
 endfunction
 
+function! s:SetExecutionMatch(window, pattern) abort
+  let [previous, id] = getwinvar(a:window, 'ipdb_execution_match', ['', -1])
+  if previous ==# a:pattern || !win_id2win(a:window)
+    return
+  endif
+  let current = win_getid()
+  try
+    noautocmd call win_gotoid(a:window)
+    if id != -1
+      silent! call matchdelete(id)
+    endif
+    let id = empty(a:pattern) ? -1 : matchadd('IpdbExecution', a:pattern, -1)
+    let w:ipdb_execution_match = [a:pattern, id]
+  finally
+    noautocmd call win_gotoid(current)
+  endtry
+endfunction
+
+function! s:ClearExecutionSelection() abort
+  if !empty(s:execution_selection)
+    sign define IpdbExecution linehl=IpdbExecution
+    for window in s:execution_selection_windows
+      call s:SetExecutionMatch(window, '')
+    endfor
+    let s:execution_selection = []
+    let s:execution_selection_windows = []
+  endif
+endfunction
+
+function! s:VisualColumn(pattern, lnum) abort
+  " Full, bounded searches include either side of the cursor on this line.
+  let backward = line('.') >= a:lnum
+  let column = searchpos(a:pattern, backward ? 'bncW' : 'ncW', a:lnum)[1]
+  if !column && line('.') == a:lnum
+    let column = searchpos(a:pattern, 'ncW', a:lnum)[1]
+  endif
+  return column
+endfunction
+
+function! s:UpdateExecutionSelection() abort
+  let current_mode = mode(1)
+  let buffer = bufnr('%')
+  if current_mode !~# '^[vVsS\x16\x13]' || buffer != get(g:, 'ipdb_execution_buffer', -1)
+    call s:ClearExecutionSelection()
+    return
+  endif
+  " Vim moves placed signs when lines are inserted or removed in the buffer.
+  let signs = filter(get(getbufinfo(buffer)[0], 'signs', []),
+        \ 'v:val.id == s:execution_sign && v:val.name ==# "IpdbExecution"')
+  let lnum = empty(signs) ? 0 : signs[0].lnum
+  if lnum < min([line('v'), line('.')]) || lnum > max([line('v'), line('.')])
+    call s:ClearExecutionSelection()
+    return
+  endif
+  let selection = [current_mode, getpos('v'), getpos('.'), winsaveview().curswant,
+        \ win_getid(), buffer, lnum, &selection, b:changedtick]
+  if selection ==# s:execution_selection
+    return
+  endif
+  " The sign line color otherwise blends into Visual. Find the exact bounds
+  " in the active window so other splits do not use their own cursor for \%V.
+  let line_pattern = '\m\%' . lnum . 'l'
+  let left = s:VisualColumn(line_pattern . '^.\{-}\zs\%V\%($\|.\)', lnum)
+  let right = s:VisualColumn(line_pattern . '^.*\zs\%V\%($\|.\)', lnum)
+  if !left || !right
+    call s:ClearExecutionSelection()
+    return
+  endif
+  let outside = line_pattern . '\%(\%<' . left . 'c\|\%>' . right . 'c\).'
+  let windows = filter(win_findbuf(buffer), 'win_id2win(v:val)')
+  for window in windows
+    call s:SetExecutionMatch(window, outside)
+  endfor
+  if empty(s:execution_selection)
+    sign define IpdbExecution linehl=NONE
+  endif
+  let s:execution_selection_windows = windows
+  let s:execution_selection = selection
+endfunction
+
 augroup IpdbExecutionCursor
   autocmd!
   autocmd BufWinEnter * call <SID>ReleaseExecutionGutter()
   autocmd CursorMoved,CursorMovedI,BufEnter,WinEnter * call IpdbExecutionCursor()
+  autocmd CursorMoved * call <SID>UpdateExecutionSelection()
+  autocmd BufLeave,WinLeave * call <SID>ClearExecutionSelection()
+  if exists('##ModeChanged')
+    autocmd ModeChanged * call <SID>UpdateExecutionSelection()
+  endif
   autocmd ColorScheme * highlight default IpdbExecution ctermbg=DarkGrey guibg=#444444
 augroup END
 " Coalesce redraw for the window that requested it.
@@ -297,6 +384,10 @@ function! IpdbDiagnosticPoll() abort
   endtry
 endfunction
 function! IpdbSourcePoll(timer) abort
+  " Older Vim has no ModeChanged event when entering or leaving Visual.
+  if !exists('##ModeChanged')
+    call s:UpdateExecutionSelection()
+  endif
   if !empty($IPDB_VIM_STATE)
     try
       let files = sort(map(filter(getbufinfo(), 'v:val.loaded && fnamemodify(v:val.name, ":e") ==? "py"'), 'fnamemodify(v:val.name, ":p")'))
